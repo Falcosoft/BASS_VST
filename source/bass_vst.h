@@ -293,11 +293,15 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetParam)
  *
  * paramIndex must be smaller than BASS_VST_GetParamCount().
  */
+ 
+ /* Falco - v2.4.0.10
+ * All 8/16 sized chars are expanded to 24.
+ */
 typedef struct
 {
-    char    name[16];               /* examples: Time, Gain, RoomType */
-    char    unit[16];               /* examples: sec, dB, type */
-    char    display[16];            /* the current value in a readable format, examples: 0.5, -3, PLATE */
+    char    name[24];               /* examples: Time, Gain, RoomType */
+    char    unit[24];               /* examples: sec, dB, type */
+    char    display[24];            /* the current value in a readable format, examples: 0.5, -3, PLATE */
     float   defaultValue;           /* the default value - this is the value used by the VST plugin just after creation */
 } BASS_VST_PARAM_INFO;
 
@@ -412,6 +416,12 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetProgramName)
  *  Misc.
  *****************************************************************************/
 
+/* Falco - v2.4.0.10
+ * knobMode 0: circular, 1: circular relativ, 2: linear
+ */
+
+BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetEditKnobMode)
+	(DWORD vstHandle, int knobMode);
 
 
 

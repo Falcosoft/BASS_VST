@@ -101,6 +101,8 @@ static void mainExit()
 	s_mainOk = false;
 	s_bassfunc = NULL;
 
+	cleanUpPlugins();
+
 	killIdleTimers();
 
 	exitHandleHandling();			
@@ -803,18 +805,18 @@ BOOL BASS_VSTDEF(BASS_VST_GetParamInfo)(DWORD vstHandle, int paramIndex, BASS_VS
 
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamLabel, paramIndex, 0, (void*)largeBuf, 0.0);
-		strncpy(info->unit, largeBuf, 8);
-		info->unit[kVstMaxParamStrLen] = 0;
+		strncpy(info->unit, largeBuf, 24);
+		info->unit[kVstMaxParamStrLen - 1] = 0;
 
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamDisplay, paramIndex, 0, (void*)largeBuf, 0.0);
-		strncpy(info->display, largeBuf, 8);
-		info->display[kVstMaxParamStrLen] = 0;
+		strncpy(info->display, largeBuf, 24);
+		info->display[kVstMaxParamStrLen - 1] = 0;
 
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamName, paramIndex, 0, (void*)largeBuf, 0.0);
-		strncpy(info->name, largeBuf, 8);
-		info->name[kVstMaxParamStrLen] = 0;
+		strncpy(info->name, largeBuf, 24);
+		info->name[kVstMaxParamStrLen - 1] = 0;
 
 		if (paramIndex < this_->numDefaultValues)
 			info->defaultValue = this_->defaultValues[paramIndex];
@@ -1147,6 +1149,24 @@ BOOL BASS_VSTDEF(BASS_VST_SetProgramName)(DWORD vstHandle, int programIndex, con
 	RETURN_SUCCESS( true );
 }
 
+
+BOOL BASS_VSTDEF(BASS_VST_SetEditKnobMode)(DWORD vstHandle, int knobMode)
+{
+	
+	BASS_VST_PLUGIN* this_ = refHandle(vstHandle);
+	if( this_ == NULL )
+		RETURN_ERROR( BASS_ERROR_HANDLE );
+
+	enterVstCritical(this_);
+
+		this_->aeffect->dispatcher(this_->aeffect, effSetEditKnobMode, 0, knobMode, NULL, 0.0);
+
+	leaveVstCritical(this_);
+	
+	unrefHandle(vstHandle);
+	
+	RETURN_SUCCESS( true );
+}
 
 
 BOOL BASS_VSTDEF(BASS_VST_SetProgramParam)(DWORD vstHandle, int programIndex, const float* param, DWORD length)
@@ -1588,10 +1608,11 @@ BOOL BASS_VSTDEF(BASS_VST_ProcessEvent)(DWORD vstHandle, DWORD midiCh, DWORD bas
 		case MIDI_EVENT_VOLUME:		CONTROLLER(7, loparam);										break;
 		case MIDI_EVENT_PAN:		CONTROLLER(10, loparam);									break;
 		case MIDI_EVENT_EXPRESSION:	CONTROLLER(11, loparam);									break;
+		case MIDI_EVENT_BANK_LSB:	CONTROLLER(32, loparam);									break;	
 		case MIDI_EVENT_SUSTAIN:	CONTROLLER(64, loparam);									break;
 		case MIDI_EVENT_PORTAMENTO:	CONTROLLER(65, loparam);									break;
 		case MIDI_EVENT_RESONANCE:	CONTROLLER(71, loparam);									break;
-		case MIDI_EVENT_CUTOFF:		CONTROLLER(77, loparam);									break;
+		case MIDI_EVENT_CUTOFF:		CONTROLLER(74, loparam);									break;
 		case MIDI_EVENT_PORTANOTE:	CONTROLLER(84, loparam);									break;
 		case MIDI_EVENT_REVERB:		CONTROLLER(91, loparam);									break;
 		case MIDI_EVENT_CHORUS:		CONTROLLER(93, loparam);									break;

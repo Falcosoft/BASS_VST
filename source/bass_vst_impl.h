@@ -40,19 +40,19 @@
 // BASS includes
 #define BASSDEF(f) (WINAPI f)	
 #define BASSSCOPE
-#include "../bass/api-2.4/bass.h"
-#include "../bass/api-2.4/bass-addon.h"
-#include "../bass/api-2.4/bassmidi.h"
+#include "bass.h"
+#include "bass_addon.h"
+#include "bassmidi.h"
 
 // BASS VST includes
 #include "bass_vst.h"
 
 // VST DSK includes
-#include "vstsdk24/aeffectx.h"
+#include "aeffectx.h"
 
 
 // internal includes
-#include "../../tools/sjhash.h"
+#include "sjhash.h"
 #include "bass_vst_version.h"
 
 // in BASS 2.4 the user pointer are void*, in older versions, DWORD was used
@@ -174,12 +174,13 @@ extern CRITICAL_SECTION	s_idleCritical;
 extern sjhash			s_unloadPendingInstances;
 extern long				s_unloadPendingCountdown;
 void					idleDo();
+void					cleanUpPlugins(); //Falcosoft: in case of dynamic load cleanup loaded plugins when unload.
 void					updateIdleTimers(BASS_VST_PLUGIN*); // call this if needsIdle has changed
 void					createIdleTimers();
 void					killIdleTimers();
 
 #define					IDLE_FREQ 50 /*ms = 20Hz*/
-#define					IDLE_UNLOAD_PENDING_COUNTDOWN (10000/*10 seconds*/ / IDLE_FREQ)
+#define					IDLE_UNLOAD_PENDING_COUNTDOWN (5000/*5 seconds*/ / IDLE_FREQ) //Falcosoft: some plugins require complete unload and 10 sec wait is too much...
 
 
 

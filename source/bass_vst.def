@@ -17,6 +17,7 @@ EXPORTS
 	BASS_VST_GetProgramParam
 	BASS_VST_SetProgram
 	BASS_VST_SetProgramName
+	BASS_VST_SetEditKnobMode
 	BASS_VST_SetProgramParam
 	BASS_VST_Resume
 	BASS_VST_SetBypass

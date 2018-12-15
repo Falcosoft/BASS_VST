@@ -1,5 +1,5 @@
 
-#include "../tools/sjhash.h"
+#include "sjhash.h"
 #include <assert.h>
 #ifdef __WXMAC__
 	#include <stdlib.h>

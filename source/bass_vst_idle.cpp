@@ -64,10 +64,29 @@ static void checkForChangedParam(BASS_VST_PLUGIN* this_)
 	}
 }
 
+void cleanUpPlugins()
+{
+	sjhashElem *elem = sjhashFirst(&s_idleHash);
+	elem = sjhashFirst(&s_unloadPendingInstances);
 
+	while( elem )
+	{
+		HINSTANCE inst = (HINSTANCE)sjhashKeysize(elem);
+		long      unloadCount = (long)sjhashData(elem);
+
+		while( unloadCount > 0 )
+		{
+			FreeLibrary(inst);
+			unloadCount--;
+		}
+
+		elem = sjhashNext(elem);
+	}
+
+}
 
 void idleDo()
-{
+{	
 	static bool s_inHere = false;
 	if( !s_inHere )
 	{
@@ -195,7 +214,7 @@ void updateIdleTimers(BASS_VST_PLUGIN* this_)
 
 
 
-static VOID CALLBACK idleTimerProc(HWND,UINT,UINT_PTR,DWORD)
+static VOID CALLBACK idleTimerProc(HWND,UINT,UINT,DWORD) // Falcosoft: VC6 requires UINT vs UINT_PTR
 {
 	idleDo();
 }
