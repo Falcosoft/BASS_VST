@@ -101,7 +101,7 @@ static void mainExit()
 	s_mainOk = false;
 	s_bassfunc = NULL;
 
-	cleanUpPlugins();
+	//cleanUpPlugins(); It's not safe to call this from here...
 
 	killIdleTimers();
 
@@ -431,8 +431,6 @@ static VstIntPtr audioMasterCallbackImpl(AEffect* aeffect_, // on load, aeffect_
  *  effect creation
  *****************************************************************************/
 
-
-
 static void CALLBACK onChannelDestroy(HSYNC handle, DWORD channel, DWORD data, USERPTR vstHandle__)
 {
 	DWORD vstHandle = (DWORD)vstHandle__;
@@ -449,6 +447,122 @@ static void CALLBACK onChannelDestroy(HSYNC handle, DWORD channel, DWORD data, U
 	}
 }
 
+
+#define PROXY_REGKEY        "Software\\JBridge"
+
+#ifndef _M_AMD64
+#define PROXY_REGVAL        "Proxy32"  //use this for x86 builds
+#else
+#define PROXY_REGVAL        "Proxy64"  //use this for x64 builds
+#endif
+ 
+ // Typedef for BridgeMain proc
+ typedef AEffect * (*PFNBRIDGEMAIN)( audioMasterCallback audiomaster, char * pszPluginPath );
+ 
+ //Check if it’s a plugin_name.xx.dll
+ bool IsBootStrapDll(char * path)
+ {
+	 bool ret = false;
+	 
+	 HMODULE hModule = LoadLibrary(path);
+	 if( !hModule )
+	 {
+		 //some error…
+		 return ret;
+	 }
+	 
+	 //Exported dummy function to identify this as a bootstrap dll.
+	 if( GetProcAddress(hModule, "JBridgeBootstrap") )
+	 {
+		 //it’s a bootstrap dll
+		 ret = true;
+	 }
+	 
+	 FreeLibrary( hModule );
+	 
+	 return ret;
+ }
+
+ //*******************************
+ 
+ //receives the plugin’s path as an argument
+ 
+AEffect * LoadBridgedPlugin(char * szPath)
+ {
+	 
+ /*optional, but recommended
+ please note that this will cause the bootstrap dlls (plugin_name.xx.dll) to be ignored,
+	 which may not be desirable if your host relies on the plugin’s location rather than its ID*/
+	 if( IsBootStrapDll( szPath ) )
+	 {
+		 //MessageBox(GetActiveWindow(), “This is a bootstrap dll. Therefore, it will be ignored.”, “Warning”, MB_OK|MB_ICONHAND);
+		 return 0;
+	 }
+	 
+	 // Get path to JBridge proxy
+	 CHAR szProxyPath[MAX_PATH];
+	 szProxyPath[0]=0 ;
+	 HKEY hKey;
+	 if ( RegOpenKey(HKEY_LOCAL_MACHINE, PROXY_REGKEY, &hKey) == ERROR_SUCCESS )
+	 {
+		 DWORD dw=sizeof(szProxyPath);
+		 RegQueryValueEx(hKey, PROXY_REGVAL, NULL, NULL, (LPBYTE)szProxyPath, &dw);
+		 RegCloseKey(hKey);
+	 }
+	 
+	 // Check key found and file exists
+	 if ( szProxyPath[0]==0 )
+	 {
+		 //MessageBox(GetActiveWindow(), “Unable to locate proxy DLL”, “Warning”, MB_OK|MB_ICONHAND);
+		 return NULL;
+	 }
+	 
+	 // Load proxy DLL
+	 HMODULE hModuleProxy=LoadLibrary(szProxyPath);
+	 if (!hModuleProxy)
+	 {
+		 //MessageBox(GetActiveWindow(), “Failed to load proxy”, “Warning”, MB_OK|MB_ICONHAND);
+		 return NULL;
+	 }
+	 
+	 // Get entry point
+	 PFNBRIDGEMAIN pfnBridgeMain=(PFNBRIDGEMAIN)GetProcAddress(hModuleProxy, "BridgeMain");
+	 if (!pfnBridgeMain)
+	 {
+		 FreeLibrary(hModuleProxy);
+		 //MessageBox(GetActiveWindow(), “BridgeMain entry point not found”, “JBridge”, MB_OK|MB_ICONHAND);
+		 return NULL;
+	 }
+	 
+	 return pfnBridgeMain(audioMasterCallbackImpl, szPath );
+	 
+ }
+
+#ifndef _M_AMD64
+typedef BOOL (WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
+
+LPFN_ISWOW64PROCESS fnIsWow64Process;
+
+BOOL IsWow64()
+{
+    BOOL bIsWow64 = FALSE;
+   
+    fnIsWow64Process = (LPFN_ISWOW64PROCESS) GetProcAddress(
+        GetModuleHandle(TEXT("kernel32")),"IsWow64Process");
+	
+    if(NULL != fnIsWow64Process)
+    {
+        if (!fnIsWow64Process(GetCurrentProcess(),&bIsWow64))
+        {
+            return FALSE;
+        }
+    }
+    return bIsWow64;
+}
+#endif
+
+ //##############################################
+
 //FILE *out = fopen("bass_vst2.log", "a");
 //fprintf(out, "%s %S\r\n", "loadVstLibrary called", dllFile);
 //fflush(out);
@@ -457,67 +571,86 @@ static void CALLBACK onChannelDestroy(HSYNC handle, DWORD channel, DWORD data, U
 static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD createFlags)
 {
 	dllMainEntryFuncType dllMainEntryFuncPtr;
-
+	this_->hinst = NULL;
+	
 	// init some values
 	this_->createFlags						= createFlags;
-
+	
 	// load the library
 	if( createFlags & BASS_UNICODE )
 		this_->hinst = LoadLibraryW((const LPCWSTR)dllFile);
 	else
 		this_->hinst = LoadLibraryA((const char*)dllFile);
-
-	if( this_->hinst == NULL )
-	{
-		SET_ERROR(BASS_ERROR_FILEOPEN);
-		return false;
+	
+	if( this_->hinst == NULL )	{	
+		
+		
+		#ifndef _M_AMD64
+		if (IsWow64())
+		#endif
+		{
+			s_inConstructionVstHandle = this_->vstHandle;
+			this_->aeffect = LoadBridgedPlugin((char*)dllFile);	
+		}
+		#ifndef _M_AMD64
+		else 
+		{
+			SET_ERROR(BASS_ERROR_FILEFORM);
+			return false;
+		}
+		#endif
+		
 	}
-
-	// get the plugin pointer
-	dllMainEntryFuncPtr = (dllMainEntryFuncType)GetProcAddress(this_->hinst, "VSTPluginMain");
-	if( dllMainEntryFuncPtr == NULL )
+	else
 	{
-		dllMainEntryFuncPtr = (dllMainEntryFuncType)GetProcAddress(this_->hinst, "main");
+		
+		// get the plugin pointer
+		dllMainEntryFuncPtr = (dllMainEntryFuncType)GetProcAddress(this_->hinst, "VSTPluginMain");
 		if( dllMainEntryFuncPtr == NULL )
 		{
-			SET_ERROR(BASS_ERROR_FILEFORM);
-			return false;
+			dllMainEntryFuncPtr = (dllMainEntryFuncType)GetProcAddress(this_->hinst, "main");
+			if( dllMainEntryFuncPtr == NULL )
+			{
+				SET_ERROR(BASS_ERROR_FILEFORM);
+				return false;
+			}
 		}
-	}
-
-	// get the aeffect instance
-	s_inConstructionVstHandle = this_->vstHandle;
+		
+		// get the aeffect instance
+		s_inConstructionVstHandle = this_->vstHandle;
 		this_->aeffect = (dllMainEntryFuncPtr)(audioMasterCallbackImpl);
-		if(  this_->aeffect == NULL 
-		 ||  this_->aeffect->magic != kEffectMagic
-	     || (this_->aeffect->__processDeprecated == NULL && this_->aeffect->processReplacing == NULL && !canDoubleReplacing(this_))
-		 ||  this_->aeffect->dispatcher == NULL )
-		{
-			SET_ERROR(BASS_ERROR_FILEFORM);
-			s_inConstructionVstHandle = 0;
-			return false;
-		}
-		this_->aeffect->resvd1 = (long)this_->vstHandle;
+	}
+	
+	if(  this_->aeffect == NULL 
+		||  this_->aeffect->magic != kEffectMagic
+		|| (this_->aeffect->__processDeprecated == NULL && this_->aeffect->processReplacing == NULL && !canDoubleReplacing(this_))
+		||  this_->aeffect->dispatcher == NULL )
+	{
+		SET_ERROR(BASS_ERROR_FILEFORM);
+		s_inConstructionVstHandle = 0;
+		return false;
+	}
+	this_->aeffect->resvd1 = (long)this_->vstHandle;
 	s_inConstructionVstHandle = 0;
-
+	
 	// check if there are enough inputs / outputs
 	if( this_->type==VSTeffect && this_->aeffect->numInputs <= 0 )
 	{
 		SET_ERROR(BASS_VST_ERROR_NOINPUTS);
 		return false;
 	}
-
+	
 	if(  this_->aeffect->numOutputs <= 0 
-	 || (this_->type==VSTinstrument && !(this_->aeffect->flags&effFlagsIsSynth)) )
+		|| (this_->type==VSTinstrument && !(this_->aeffect->flags&effFlagsIsSynth)) )
 	{
 		SET_ERROR(BASS_VST_ERROR_NOOUTPUTS);
 		return false;
 	}
-
+	
 	// call effOpen - call this before dispatching anything else!
 	this_->aeffect->dispatcher(this_->aeffect, effOpen, 0, 0, NULL, 0.0); // effOpen has no return value for errors
 	this_->effOpenCalled = true;
-
+	
 	// check of the module supports real time processing -
 	// checking for (PluginCanDo("noRealTime")&&PluginCanDo("offline")) is not correct: this only means a realtime plugin can also do offline processing
 	long plugCategory = (long)this_->aeffect->dispatcher(this_->aeffect, effGetPlugCategory, 0, 0, NULL, 0.0);
@@ -526,7 +659,7 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 		SET_ERROR(BASS_VST_ERROR_NOREALTIME);
 		return false;
 	}
-
+	
 	// init the sample rate
 	long sampleRate = getSampleRate(this_);
 	this_->aeffect->dispatcher(this_->aeffect, effSetSampleRate, 0, 0, NULL, (float)sampleRate);
@@ -537,16 +670,16 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 		this_->aeffect->setParameter(this_->aeffect, 0, (old < 0.5f) ? 1.0f : 0.0f);
 		this_->aeffect->setParameter(this_->aeffect, 0, old);
     }
-
+	
 	// this is a safety measure against some plugins that only set their buffers
 	// ONCE - this should ensure that they allocate a buffer that's large enough.
 	// Normally, the buffer size is set dynamically in PostprocessSamples()
 	this_->aeffect->dispatcher(this_->aeffect, effSetBlockSize, 0, sampleRate/*one second*/, NULL, 0.0);
 	this_->aeffect->dispatcher(this_->aeffect, effMainsChanged, 0, 1/*resume*/, NULL, 0.0);
-
+	
 	this_->numDefaultValues = 0;
 	this_->numLastValues = 0;
-
+	
 	if( this_->aeffect->getParameter )
 	{
 		// select the first program
@@ -554,7 +687,7 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 		{
 			this_->aeffect->dispatcher(this_->aeffect, effSetProgram, 0, 0/*select first program*/, NULL, 0.0);
 		}
-
+		
 		int paramCount = this_->aeffect->numParams;
 		if (paramCount >= 0)
 		{
@@ -564,19 +697,19 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 				bytesNeeded = sizeof(float) * 24;
 			this_->defaultValues = (float*)malloc(bytesNeeded);
 			this_->lastValues = (float*)malloc(bytesNeeded);
-
+			
 			if( this_->defaultValues == NULL || this_->lastValues == NULL)
 			{
 				SET_ERROR(BASS_ERROR_MEM);
 				return false;
 			}
-
+			
 			memset(this_->defaultValues, 0, bytesNeeded);
 			memset(this_->lastValues, 0, bytesNeeded);
-
+			
 			this_->numDefaultValues = paramCount;
 			this_->numLastValues = paramCount;
-
+			
 			int paramIndex;
 			for( paramIndex = 0; paramIndex < paramCount; paramIndex++ )
 			{
@@ -584,7 +717,7 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 			}
 		}
 	}
-
+	
 	// success
 	return true;
 }
@@ -1168,6 +1301,13 @@ BOOL BASS_VSTDEF(BASS_VST_SetEditKnobMode)(DWORD vstHandle, int knobMode)
 	RETURN_SUCCESS( true );
 }
 
+BOOL BASS_VSTDEF(BASS_VST_CleanUpPlugins)()
+{	
+    cleanUpPlugins();
+	
+	RETURN_SUCCESS(true);
+}
+
 
 BOOL BASS_VSTDEF(BASS_VST_SetProgramParam)(DWORD vstHandle, int programIndex, const float* param, DWORD length)
 {
@@ -1264,10 +1404,10 @@ BOOL BASS_VSTDEF(BASS_VST_GetInfo)(DWORD vstHandle, BASS_VST_INFO* info)
 				if( info->editorWidth  < 0 ) info->editorWidth  = 0; // unknown - some plugins tell their size only after creation of the editor window
 				if( info->editorHeight < 0 ) info->editorHeight = 0; //              - " -
 			}
-			else
+			/*else //falco: causes problem with some plugins that actually have editor but dimensions can be calculated only at runtime
 			{
 				info->hasEditor = 0;
-			}
+			}*/
 		}
 
 	leaveVstCritical(this_);
@@ -1510,6 +1650,10 @@ static void queueEventRaw(BASS_VST_PLUGIN* this_, char midi0, char midi1, char m
 		VstEvent**	eSlot = NULL;
 		VstInt32 deltaFrames = 0;
 
+		///falco: deltaFrames field has to be implemented properly. Constant 0 is a very rude solution.
+		int tmpTimeMs = timeGetTime() - this_->pluginTimeMs;
+		if (tmpTimeMs > 0) deltaFrames = (int)(tmpTimeMs * (getSampleRate(this_) * 0.001));
+
 		// initialize MIDI structures
 		if( this_->midiEventsCurr == NULL )
 		{
@@ -1602,13 +1746,13 @@ BOOL BASS_VSTDEF(BASS_VST_ProcessEvent)(DWORD vstHandle, DWORD midiCh, DWORD bas
 		case MIDI_EVENT_PROGRAM:	COMMAND(0xC0, loparam, 0);									break;
 		case MIDI_EVENT_CHANPRES:	COMMAND(0xD0, loparam, 0);									break;
 		case MIDI_EVENT_PITCH:		COMMAND(0xE0, (char)param&0x7F, (char)(param>>7)&0x7F);		break;
-		case MIDI_EVENT_BANK:		CONTROLLER(0, loparam);										break;
+		case MIDI_EVENT_BANK:		CONTROLLER(0, loparam);										break;		
 		case MIDI_EVENT_MODULATION:	CONTROLLER(1, loparam);										break;
 		case MIDI_EVENT_PORTATIME:	CONTROLLER(5, loparam);										break;
 		case MIDI_EVENT_VOLUME:		CONTROLLER(7, loparam);										break;
 		case MIDI_EVENT_PAN:		CONTROLLER(10, loparam);									break;
 		case MIDI_EVENT_EXPRESSION:	CONTROLLER(11, loparam);									break;
-		case MIDI_EVENT_BANK_LSB:	CONTROLLER(32, loparam);									break;	
+		case MIDI_EVENT_BANK_LSB:		CONTROLLER(32, loparam);										break;
 		case MIDI_EVENT_SUSTAIN:	CONTROLLER(64, loparam);									break;
 		case MIDI_EVENT_PORTAMENTO:	CONTROLLER(65, loparam);									break;
 		case MIDI_EVENT_RESONANCE:	CONTROLLER(71, loparam);									break;

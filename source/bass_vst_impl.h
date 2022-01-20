@@ -151,6 +151,7 @@ typedef struct
 
 	// do not use directly! always use the BASS_VST_LOCKER!
 	long				handleUsage;
+	unsigned long       pluginTimeMs; //falco: for proper deltaFrames calculation.
 
 } BASS_VST_PLUGIN;
 
