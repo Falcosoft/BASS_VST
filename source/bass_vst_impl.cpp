@@ -580,17 +580,28 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 	if( createFlags & BASS_UNICODE )
 		this_->hinst = LoadLibraryW((const LPCWSTR)dllFile);
 	else
-		this_->hinst = LoadLibraryA((const char*)dllFile);
+		this_->hinst = LoadLibraryA((const char*)dllFile);		
+
 	
 	if( this_->hinst == NULL )	{	
 		
-		
+    	       //falco: direct Jbridge support
 		#ifndef _M_AMD64
 		if (IsWow64())
 		#endif
 		{
 			s_inConstructionVstHandle = this_->vstHandle;
-			this_->aeffect = LoadBridgedPlugin((char*)dllFile);	
+			if( createFlags & BASS_UNICODE )
+			{
+				char ansiDllFile[MAX_PATH];
+				WideCharToMultiByte(CP_ACP, 0, (LPCWSTR)dllFile, -1, (char*)ansiDllFile, MAX_PATH, NULL, NULL);
+				this_->aeffect = LoadBridgedPlugin((char*)ansiDllFile);
+
+			}
+			else
+			{ 
+				this_->aeffect = LoadBridgedPlugin((char*)dllFile);	
+			}	
 		}
 		#ifndef _M_AMD64
 		else 
@@ -938,18 +949,18 @@ BOOL BASS_VSTDEF(BASS_VST_GetParamInfo)(DWORD vstHandle, int paramIndex, BASS_VS
 
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamLabel, paramIndex, 0, (void*)largeBuf, 0.0);
-		strncpy(info->unit, largeBuf, 24);
-		info->unit[kVstMaxParamStrLen - 1] = 0;
+		strncpy(info->unit, largeBuf, kVstMaxParamStrLen);
+		info->unit[kVstMaxParamStrLen] = 0;
 
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamDisplay, paramIndex, 0, (void*)largeBuf, 0.0);
-		strncpy(info->display, largeBuf, 24);
-		info->display[kVstMaxParamStrLen - 1] = 0;
+		strncpy(info->display, largeBuf, kVstMaxParamStrLen);
+		info->display[kVstMaxParamStrLen] = 0;
 
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamName, paramIndex, 0, (void*)largeBuf, 0.0);
-		strncpy(info->name, largeBuf, 24);
-		info->name[kVstMaxParamStrLen - 1] = 0;
+		strncpy(info->name, largeBuf, kVstMaxParamStrLen);
+		info->name[kVstMaxParamStrLen] = 0;
 
 		if (paramIndex < this_->numDefaultValues)
 			info->defaultValue = this_->defaultValues[paramIndex];
@@ -1653,7 +1664,7 @@ static void queueEventRaw(BASS_VST_PLUGIN* this_, char midi0, char midi1, char m
 		///falco: deltaFrames field has to be implemented properly. Constant 0 is a very rude solution.
 		int tmpTimeMs = timeGetTime() - this_->pluginTimeMs;
 		if (tmpTimeMs > 0) deltaFrames = (int)(tmpTimeMs * (getSampleRate(this_) * 0.001));
-
+		
 		// initialize MIDI structures
 		if( this_->midiEventsCurr == NULL )
 		{
