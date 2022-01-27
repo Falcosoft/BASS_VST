@@ -856,6 +856,7 @@ DWORD BASS_VSTDEF(BASS_VST_ChannelCreate)(DWORD freq, DWORD chans, const void* d
 	if(QueryPerformanceFrequency(&tmpFreq)) 
 	{
 		this_->queryPerformanceUnit = 1.0 / (tmpFreq.QuadPart * 0.001);
+		QueryPerformanceCounter(&this_->pluginTimeQp);
 
 	}	
 
