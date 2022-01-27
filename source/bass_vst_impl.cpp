@@ -174,7 +174,7 @@ static long s_language = kVstLangEnglish;
 // just find out the sample rate of the channel
 static long getSampleRate(BASS_VST_PLUGIN* this_)
 {
-	long sampleRate = 44100;
+	long sampleRate = 96000;
 	if( this_ && this_->channelHandle )
 	{
 		BASS_CHANNELINFO info;
@@ -684,9 +684,9 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 	
 	// this is a safety measure against some plugins that only set their buffers
 	// ONCE - this should ensure that they allocate a buffer that's large enough.
-	// Normally, the buffer size is set dynamically in PostprocessSamples()
-	this_->aeffect->dispatcher(this_->aeffect, effSetBlockSize, 0, sampleRate/*one second*/, NULL, 0.0);
-	this_->aeffect->dispatcher(this_->aeffect, effMainsChanged, 0, 1/*resume*/, NULL, 0.0);
+	// Normally, the buffer size is set dynamically in PostprocessSamples(). Falco: 1 sec is buffer is overkill since the max possible update period of Bass is 100 ms.
+	this_->aeffect->dispatcher(this_->aeffect, effSetBlockSize, 0, (long)(sampleRate * 0.2)/*0.2 second*/, NULL, 0.0);
+	this_->aeffect->dispatcher(this_->aeffect, effMainsChanged, 0, 1/*resume*/, NULL, 0.0);	
 	
 	this_->numDefaultValues = 0;
 	this_->numLastValues = 0;
@@ -848,6 +848,16 @@ DWORD BASS_VSTDEF(BASS_VST_ChannelCreate)(DWORD freq, DWORD chans, const void* d
 	{
 		goto Error; // error already logged by loadVstLibrary()
 	}
+
+	//falco: for greater Midi precision
+	this_->queryPerformanceUnit = 0.0;
+
+	LARGE_INTEGER tmpFreq;
+	if(QueryPerformanceFrequency(&tmpFreq)) 
+	{
+		this_->queryPerformanceUnit = 1.0 / (tmpFreq.QuadPart * 0.001);
+
+	}	
 
 	// okay -- plugin loaded so far: start process	
 	if( !openProcess(this_, this_) )
@@ -1660,10 +1670,21 @@ static void queueEventRaw(BASS_VST_PLUGIN* this_, char midi0, char midi1, char m
 		
 		VstEvent**	eSlot = NULL;
 		VstInt32 deltaFrames = 0;
-
+		
 		///falco: deltaFrames field has to be implemented properly. Constant 0 is a very rude solution.
-		int tmpTimeMs = timeGetTime() - this_->pluginTimeMs;
-		if (tmpTimeMs > 0) deltaFrames = (int)(tmpTimeMs * (getSampleRate(this_) * 0.001));
+		if (this_->queryPerformanceUnit != 0.0)
+		{
+			LARGE_INTEGER tmpCounter;
+			QueryPerformanceCounter(&tmpCounter);
+			double tmpTimeMs = (tmpCounter.QuadPart - this_->pluginTimeQp.QuadPart) * this_->queryPerformanceUnit;
+			if (tmpTimeMs > 0.0) deltaFrames = (int)(tmpTimeMs * (getSampleRate(this_) * 0.001));
+
+		}
+		else
+		{
+			int tmpTimeMs = timeGetTime() - this_->pluginTimeMs;
+			if (tmpTimeMs > 0) deltaFrames = (int)(tmpTimeMs * (getSampleRate(this_) * 0.001));
+		}
 		
 		// initialize MIDI structures
 		if( this_->midiEventsCurr == NULL )

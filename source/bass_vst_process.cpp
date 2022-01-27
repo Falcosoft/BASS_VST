@@ -484,8 +484,17 @@ void CALLBACK doEffectProcess(HDSP dspHandle, DWORD channelHandle, void* buffer_
 	// processReplacing() as a separate function but rather use process())
 	enterVstCritical(this_);
 	if( !this_->doBypass )
-	{
-		this_->pluginTimeMs = timeGetTime(); //falco: for proper deltaFrames calculation.
+	{				
+		//falco: for proper deltaFrames calculation.
+		if ( this_->queryPerformanceUnit != 0.0 ) 
+		{
+			QueryPerformanceCounter(&this_->pluginTimeQp);
+		}
+		else
+		{
+			this_->pluginTimeMs = timeGetTime(); 
+		}
+
 		this_->vstTimeInfo.samplePos += numSamples;
 		if( this_->vstTimeInfo.samplePos < 0.0 )
 			this_->vstTimeInfo.samplePos = 0.0;
@@ -544,6 +553,7 @@ void CALLBACK doEffectProcess(HDSP dspHandle, DWORD channelHandle, void* buffer_
 		{
 			cnvFloatToPcm16(floatBuffer, (signed short*)buffer__, numSamples * sizeof(float) * channelInfo.chans);
 		}
+		
 	}
 	leaveVstCritical(this_);
 	
