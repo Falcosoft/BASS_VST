@@ -170,7 +170,7 @@ static bool allocChanBuffers(BASS_VST_PLUGIN* this_, long numInputs, long numOut
 
 	// some VST don't like a tiny buffer? //falco: from Ian to prevent Amplitube bug
     if(numBytes < 64 * sizeof(float))
-        numBytes = 64 * sizeof(float);
+        numBytes = 64 * sizeof(float);	
 
 	
 	if( numBytes > this_->bytesPerInOutBuffer
@@ -312,6 +312,14 @@ static void callProcess(BASS_VST_PLUGIN* this_, BASS_VST_PLUGIN* buffers, long n
 		EnterCriticalSection(&this_->midiCritical_);
 		if( this_->midiEventsCurr && this_->midiEventsCurr->numEvents )
 		{
+			//falco: correction for very small buffers where deltaFrame values may go beyond actual block size. 
+			int i;
+			for( i = 0; i < this_->midiEventsCurr->numEvents; i++ ) 
+			{
+				if( this_->midiEventsCurr->events[i]->deltaFrames >= numSamples ) this_->midiEventsCurr->events[i]->deltaFrames = numSamples - 1; 
+				
+			}
+
 			this_->aeffect->dispatcher(this_->aeffect, effProcessEvents, 0, 0, this_->midiEventsCurr, 0.0);
 			
 			// prepare for the next round ... use the other buffer
