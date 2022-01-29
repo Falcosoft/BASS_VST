@@ -190,23 +190,22 @@ static void calcVstTimeInfo(BASS_VST_PLUGIN* this_, VstIntPtr toCalc)
 {
 	this_->vstTimeInfo.flags = kVstTransportPlaying;
 	this_->vstTimeInfo.sampleRate = getSampleRate(this_);
+	DWORD ret = 0;
 
-	if( toCalc & kVstNanosValid )
-	{
-		this_->vstTimeInfo.nanoSeconds = (double)timeGetTime() * 1000000.0L;
-		this_->vstTimeInfo.flags |= kVstNanosValid;
-	}
-	
+	//falco: with real/valid tempo values from host many other fields can be calculated correctly
+	if( this_->callback && (this_->callbackFlags & BASS_VST_TEMPO_REQUEST) && (toCalc & (kVstTempoValid|kVstPpqPosValid|kVstTimeSigValid )) ) 
+		ret = this_->callback(this_->vstHandle, BASS_VST_TEMPO_REQUEST, 0, 0, &this_->vstTimeInfo);
+
 	if( toCalc & kVstTimeSigValid )
 	{
-		this_->vstTimeInfo.timeSigNumerator   = 4;
-		this_->vstTimeInfo.timeSigDenominator = 4;
+		if( !ret ) this_->vstTimeInfo.timeSigNumerator   = 4;
+		if( !ret ) this_->vstTimeInfo.timeSigDenominator = 4;
 		this_->vstTimeInfo.flags |= kVstTimeSigValid;
-	}
+	}		
 
 	if( toCalc & (kVstTempoValid|kVstPpqPosValid) )
 	{
-		this_->vstTimeInfo.tempo = 120;
+		if( !ret ) this_->vstTimeInfo.tempo = 120;
 		this_->vstTimeInfo.flags |= kVstTempoValid;
 	}
 
@@ -226,6 +225,12 @@ static void calcVstTimeInfo(BASS_VST_PLUGIN* this_, VstIntPtr toCalc)
 		double dOffsetInSecond = dPos - floor(dPos);
 		this_->vstTimeInfo.smpteOffset = (long)(dOffsetInSecond * fSmpteDiv[this_->vstTimeInfo.smpteFrameRate] * 80.L);
 		this_->vstTimeInfo.flags |= kVstSmpteValid;
+	}
+
+	if( toCalc & kVstNanosValid )
+	{
+		this_->vstTimeInfo.nanoSeconds = (double)timeGetTime() * 1000000.0L;
+		this_->vstTimeInfo.flags |= kVstNanosValid;
 	}
 
 	if( toCalc & kVstCyclePosValid )
@@ -259,7 +264,7 @@ static VstIntPtr audioMasterCallbackImpl(AEffect* aeffect_, // on load, aeffect_
 	// check if processing is done by the user
 	////////////////////////////////////////////////////////////
 	
-	if( this_->callback )
+	if( this_->callback && (this_->callbackFlags & BASS_VST_AUDIO_MASTER) )
 	{
 		VSTPROC*		callback = this_->callback;
 		void*			callbackUserData = this_->callbackUserData;
@@ -327,7 +332,7 @@ static VstIntPtr audioMasterCallbackImpl(AEffect* aeffect_, // on load, aeffect_
 					int oldParamCount = this_->numLastValues;
 					int newParamCount = validateLastValues(this_);
 				leaveVstCritical(this_);
-				if( this_->callback )
+				if( this_->callback && (this_->callbackFlags & BASS_VST_PARAM_CHANGED))
 					this_->callback(this_->vstHandle, BASS_VST_PARAM_CHANGED, oldParamCount, newParamCount, this_->callbackUserData);
 			}
 			break;
@@ -344,7 +349,7 @@ static VstIntPtr audioMasterCallbackImpl(AEffect* aeffect_, // on load, aeffect_
 			break;
 			
 		case audioMasterSizeWindow:				// index: width, value: height
-			if( this_->callback )
+			if( this_->callback && (this_->callbackFlags & BASS_VST_EDITOR_RESIZED) )
 			{
 				this_->callback(vstHandle, BASS_VST_EDITOR_RESIZED, index, (DWORD)value, this_->callbackUserData);
 			}
@@ -379,6 +384,10 @@ static VstIntPtr audioMasterCallbackImpl(AEffect* aeffect_, // on load, aeffect_
 			 || strcasecmp((char*)ptr, "startstopprocess")==0 )	// we calls effStartProcess  and effStopProcess
 			{
 				ret = 1;
+			}
+			else 
+			{
+				ret = -1;
 			}
 			break;
 
@@ -487,7 +496,7 @@ static void CALLBACK onChannelDestroy(HSYNC handle, DWORD channel, DWORD data, U
  
  //receives the plugin’s path as an argument
  
-AEffect * LoadBridgedPlugin(char * szPath)
+AEffect * LoadBridgedPlugin(char * szPath)  //falco: direct Jbridge support
  {
 	 
  /*optional, but recommended
@@ -1550,7 +1559,7 @@ BOOL BASS_VSTDEF(BASS_VST_SetScope)(DWORD vstHandle, DWORD scope)
 
 
 
-BOOL BASS_VSTDEF(BASS_VST_SetCallback)(DWORD vstHandle, VSTPROC* callback, void* userData)
+BOOL BASS_VSTDEF(BASS_VST_SetCallback)(DWORD vstHandle, VSTPROC* callback, void* userData, DWORD flags)
 {
 	BASS_VST_PLUGIN* this_ = refHandle(vstHandle);
 	if( this_ == NULL )
@@ -1558,6 +1567,7 @@ BOOL BASS_VSTDEF(BASS_VST_SetCallback)(DWORD vstHandle, VSTPROC* callback, void*
 
 	this_->callback = callback;
 	this_->callbackUserData = userData;
+	this_->callbackFlags = flags;
 
 	unrefHandle(vstHandle);
 

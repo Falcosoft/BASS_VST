@@ -423,6 +423,8 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetProgramName)
 BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetEditKnobMode)
 	(DWORD vstHandle, int knobMode);
 
+BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_CleanUpPlugins)
+	();
 
 
 /* Call BASS_VST_Resume() after playback position changes or sth. like that.
@@ -576,10 +578,13 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetScope)
 typedef DWORD (CALLBACK VSTPROC)(DWORD vstHandle, DWORD action, DWORD param1, DWORD param2, void* user);
 #define BASS_VST_PARAM_CHANGED  1   /* some parameters are changed by the editor opened by BASS_VST_EmbedEditor(), NOT posted if you call BASS_VST_SetParam(), param1=oldParamNum, param2=newParamNum */
 #define BASS_VST_EDITOR_RESIZED 2   /* the embedded editor window should be resized, the new width/height can be found in param1/param2 and in BASS_VST_GetInfo() */
-#define BASS_VST_AUDIO_MASTER   3   /* can be used to subclass the audioMaster callback, param1 is a pointer to a BASS_VST_AUDIO_MASTER_PARAM structure defined below */
+#define BASS_VST_AUDIO_MASTER   4   /* can be used to subclass the audioMaster callback, param1 is a pointer to a BASS_VST_AUDIO_MASTER_PARAM structure defined below. !!!falco: value changed from 3 so it can be used as a flag!!!*/
+#define BASS_VST_TEMPO_REQUEST  8   /* falco: can be used to set real tempo and time signature by the host. In the user param host gets VstTimeInfo struct to modify*/
+#define BASS_VST_ALL_CALLBACKS  0xFFFFFFFF  /* falco: All current or future events */
 
+//falco: With the help of the new flags parameter you can define what events should call your callback.
 BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetCallback)
-    (DWORD vstHandle, VSTPROC*, void* user);
+    (DWORD vstHandle, VSTPROC*, void* user, DWORD flags = BASS_VST_ALL_CALLBACKS);
 
 
 

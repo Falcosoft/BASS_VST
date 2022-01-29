@@ -131,6 +131,7 @@ typedef struct
 	// callbacks
 	VSTPROC*			callback;
 	void*				callbackUserData;
+	DWORD				callbackFlags; //falco: defines what events should generate callbacks
 
 	// pending MIDI events, they're sended just before processReplacing is called
 	#define				MAX_MIDI_EVENTS 2048

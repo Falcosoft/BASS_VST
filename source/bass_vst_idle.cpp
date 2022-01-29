@@ -59,7 +59,7 @@ static void checkForChangedParam(BASS_VST_PLUGIN* this_)
 	if( paramChanged )
 	{
 		// inform the user
-		if( this_->callback )
+		if( this_->callback && (this_->callbackFlags & BASS_VST_PARAM_CHANGED) )
 			this_->callback(this_->vstHandle, BASS_VST_PARAM_CHANGED, oldParamCount, newParamCount, this_->callbackUserData);
 	}
 }
@@ -214,7 +214,7 @@ void updateIdleTimers(BASS_VST_PLUGIN* this_)
 
 
 
-static VOID CALLBACK idleTimerProc(HWND,UINT,UINT,DWORD) // Falcosoft: VC6 requires UINT vs UINT_PTR
+static VOID CALLBACK idleTimerProc(HWND, UINT, UINT_PTR, DWORD) // Falcosoft: VC6 requires UINT vs UINT_PTR
 {
 	idleDo();
 }
