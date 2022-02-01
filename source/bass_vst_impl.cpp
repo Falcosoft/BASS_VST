@@ -87,7 +87,7 @@ static void mainInit()
 
 	InitializeCriticalSection(&s_idleCritical);
 	sjhashInit(&s_idleHash, SJHASH_INT, /*keytype*/ 0/*copyKey*/);
-	sjhashInit(&s_unloadPendingInstances, SJHASH_INT, /*keytype*/ 0/*copyKey*/);
+	sjhashInit(&s_unloadPendingInstances, SJHASH_POINTER, /*keytype*/ 0/*copyKey*/);
 
 	s_mainOk = true;
 }
@@ -1850,76 +1850,3 @@ BOOL BASS_VSTDEF(BASS_VST_ProcessEventRaw)(DWORD vstHandle, const void* bassEven
 		RETURN_ERROR( error )
 }
 
-
-BOOL BASS_VSTDEF(BASS_VST_SupportsRds)(DWORD vstHandle)
-{
-	BASS_VST_PLUGIN* this_ = refHandle(vstHandle);
-	if( this_ == NULL )
-		RETURN_ERROR(BASS_ERROR_HANDLE);
-	
-	DWORD error = BASS_OK;
-
-	error = BASS_ERROR_FILEFORM;
-
-	unrefHandle(vstHandle);
-
-	if( error == BASS_OK )
-		RETURN_SUCCESS( true )
-	else
-		RETURN_ERROR( error )
-}
-
-BOOL BASS_VSTDEF(BASS_VST_SetRdsPs)(DWORD vstHandle, char* text, bool now)
-{
-	BASS_VST_PLUGIN* this_ = refHandle(vstHandle);
-	if( this_ == NULL )
-		RETURN_ERROR(BASS_ERROR_HANDLE);
-	if( text == NULL )
-		RETURN_ERROR(BASS_ERROR_ILLPARAM);
-	DWORD error = BASS_OK;
-
-	//this_->SetRdsPsPtr(text, now);
-
-	unrefHandle(vstHandle);
-
-	if( error == BASS_OK )
-		RETURN_SUCCESS( true )
-	else
-		RETURN_ERROR( error )
-}
-
-BOOL BASS_VSTDEF(BASS_VST_SetRdsRt)(DWORD vstHandle, bool on, char* text, bool now)
-{
-	BASS_VST_PLUGIN* this_ = refHandle(vstHandle);
-	if( this_ == NULL )
-		RETURN_ERROR(BASS_ERROR_HANDLE);
-	if( text == NULL )
-		RETURN_ERROR(BASS_ERROR_ILLPARAM);
-	DWORD error = BASS_OK;
-
-	//this_->SetRdsRtPtr(on, text, now);
-
-	unrefHandle(vstHandle);
-
-	if( error == BASS_OK )
-		RETURN_SUCCESS( true )
-	else
-		RETURN_ERROR( error )
-}
-
-BOOL BASS_VSTDEF(BASS_VST_SetRdsTa)(DWORD vstHandle, bool ta, bool tp)
-{
-	BASS_VST_PLUGIN* this_ = refHandle(vstHandle);
-	if( this_ == NULL )
-		RETURN_ERROR(BASS_ERROR_HANDLE);
-	DWORD error = BASS_OK;
-
-	//this_->SetRdsTaPtr(ta, tp);
-
-	unrefHandle(vstHandle);
-
-	if( error == BASS_OK )
-		RETURN_SUCCESS( true )
-	else
-		RETURN_ERROR( error )
-}

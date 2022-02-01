@@ -687,23 +687,6 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_ProcessEventRaw)
     (DWORD vstHandle, const void* event, DWORD length);
 
 
-/* StereoTools enhancement for the RDS functions
- * BASS_VST_SetRdsPs set the Programme Service Name (PS) - typically 8 chars
- * BASS_VST_SetRdsRt set the Radio Text (RT) - typically 64 chars for each line
- * BASS_VST_SetRdsTa sets the Traffic-Programme-Signal (TP) and Traffic Announcement (TA)
- */
-BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SupportsRds)
-    (DWORD vstHandle);
-
-BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetRdsPs)
-    (DWORD vstHandle, char* text, bool now);
-
-BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetRdsRt)
-    (DWORD vstHandle, bool on, char* text, bool now);
-
-BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetRdsTa)
-    (DWORD vstHandle, bool ta, bool tp);
-
 
 /* If any BASS_VST function fails, you can use BASS_ErrorGetCode() to obtain
  * the reason for failure.  The error codes are the one from bass.h plus the

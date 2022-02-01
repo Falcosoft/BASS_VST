@@ -70,16 +70,21 @@ BASS_VST_PLUGIN* createHandle(DWORD type, DWORD requestedHandleValue)
 		return NULL;
 
 	memset(this_, 0, sizeof(BASS_VST_PLUGIN));
-	this_->type = type;
-
-	// calculate the handle to use - either use the given one or simply the pointer
-	if( requestedHandleValue == 0 )
-	{
-		requestedHandleValue = (DWORD)this_;
-	}
+	this_->type = type;	
 
 	// make sure, the handle value is okay
 	EnterCriticalSection(&s_handleCritical);
+	
+	// calculate the handle to use - either use the given one or an incrementing number (not "this_" pointer because that could be reused or be non-unique in 64-bit)
+	if (requestedHandleValue == 0)
+	{
+		static DWORD handle;
+		requestedHandleValue = ++handle;
+		// unlikely to ever need this many handles but always use positive values to avoid any conflict with VSTi stream handles (which are always negative)
+		if ((int)requestedHandleValue <= 0)
+			requestedHandleValue = handle = 1;
+	}
+
 
 		if( sjhashFind(&s_handleHash, NULL, /*pKey, not needed*/ (int)requestedHandleValue/*nKey*/) == NULL )
 		{
@@ -116,6 +121,10 @@ static void destroyHandle(BASS_VST_PLUGIN* this_)
 	this_->needsIdle = 0;
 	updateIdleTimers(this_);
 
+	// free VSTi stream
+	//if (this_->type == VSTinstrument)
+	//	BASS_StreamFree(this_->channelHandle); falco: can cause exceptions at close...
+
 	// ... remove the plugin from the channel
 	if( this_->channelHandle && this_->dspHandle )
 		BASS_ChannelRemoveDSP(this_->channelHandle, this_->dspHandle);
@@ -143,11 +152,9 @@ static void destroyHandle(BASS_VST_PLUGIN* this_)
 	// unload the library delayed - otherwise we get some curious crashes here and there ...
 	// if the library is aleady pending, increase the unload counter
 	EnterCriticalSection(&s_idleCritical);
-		long oldVal = (long)sjhashFind(&s_unloadPendingInstances, NULL, /*pKey, not needed*/ 
-			(int)this_->hinst/*nKey*/);
+		long oldVal = (long)sjhashFind(&s_unloadPendingInstances, this_->hinst, 0);
 
-		sjhashInsert(&s_unloadPendingInstances, NULL, /*pKey, not needed*/ (int)this_->hinst, /*nKey*/ 
-			(void*)(oldVal+1)/*pData*/);
+		sjhashInsert(&s_unloadPendingInstances, this_->hinst, 0, (void*)(oldVal+1)/*pData*/);
 
 		s_unloadPendingCountdown = IDLE_UNLOAD_PENDING_COUNTDOWN;
 		createIdleTimers();
@@ -239,30 +246,26 @@ BOOL unrefHandle(DWORD handle)
 
 
 
+#ifndef __APPLE__
 HMODULE				 s_hDllKernel32 = NULL;
-static BOOL (WINAPI *m_pfnTryEnterCriticalSection)(CRITICAL_SECTION*) = NULL;
-static BOOL          m_pfnTryEnterCriticalSection_loadingTried = false;
+
 BOOL tryEnterVstCritical(BASS_VST_PLUGIN* this_)
 {
+	static BOOL(WINAPI * m_pfnTryEnterCriticalSection)(CRITICAL_SECTION*) = NULL;
+	static BOOL          m_pfnTryEnterCriticalSection_loadingTried = false;
+
 	// note that this function will wait if trying is impossible!
 	if( !m_pfnTryEnterCriticalSection_loadingTried )
 	{
 		m_pfnTryEnterCriticalSection_loadingTried = true;
-		OSVERSIONINFO stVersionInfo;
-		stVersionInfo.dwOSVersionInfoSize = sizeof(stVersionInfo);
-		if(GetVersionEx(&stVersionInfo) && (stVersionInfo.dwPlatformId == VER_PLATFORM_WIN32_NT))
-		{
-			if( s_hDllKernel32 == NULL )
-			{
-				s_hDllKernel32 = LoadLibrary("kernel32.dll");
-			}
+		s_hDllKernel32 = GetModuleHandle("kernel32.dll"); // kernel32.dll is always loaded
 
-			if( s_hDllKernel32 )
-			{
-				m_pfnTryEnterCriticalSection = (BOOL (WINAPI *)(CRITICAL_SECTION*))GetProcAddress(s_hDllKernel32, "TryEnterCriticalSection");
-			}
-		}
+
+
+		m_pfnTryEnterCriticalSection = (BOOL (WINAPI *)(CRITICAL_SECTION*))GetProcAddress(s_hDllKernel32, "TryEnterCriticalSection");
 	}
+
+
 
 	if( m_pfnTryEnterCriticalSection )
 	{
@@ -274,6 +277,12 @@ BOOL tryEnterVstCritical(BASS_VST_PLUGIN* this_)
 		return TRUE;
 	}
 }
+#else
+BOOL tryEnterVstCritical(BASS_VST_PLUGIN* this_)
+{
+	return !pthread_mutex_trylock(&this_->vstCritical_);
+}
+#endif
 
 
 
@@ -345,7 +354,7 @@ int validateLastValues(BASS_VST_PLUGIN* this_)
 void checkForwarding()
 {
 	sjhash oldForwardReceivers;
-	sjhashInit(&oldForwardReceivers, SJHASH_INT, /*keytype*/ 0/*copyKey*/);
+	sjhashInit(&oldForwardReceivers, SJHASH_POINTER, /*keytype*/ 0/*copyKey*/);
 
 	EnterCriticalSection(&s_forwardCritical);
 	EnterCriticalSection(&s_handleCritical);
@@ -364,8 +373,7 @@ void checkForwarding()
 			// -> this is an old forwarding -> mark this, maybe we will remove it later
 			if( this_->type==VSTeffect && this_->channelHandle==0 && this_->effStartProcessCalled )
 			{
-				sjhashInsert(&oldForwardReceivers, NULL, /*pKey, not needed*/ (int)this_, /*nKey*/ 
-					(void*)1/*pData - 0 = remove*/);
+					sjhashInsert(&oldForwardReceivers, this_, 0, (void*)1/*pData - 0 = remove*/);
 			}
 
 			elemThis = sjhashNext(elemThis);
@@ -391,8 +399,7 @@ void checkForwarding()
 						if( other_->forwardDataToOtherCnt < MAX_FWD-1 ) // if the buffer (128(!) handles) is full, this will only result in display problems of VU meters, nothing really to worry about ...
 							other_->forwardDataToOtherCnt++;
 
-						if( sjhashInsert(&oldForwardReceivers, NULL, /*pKey, not needed*/ (int)this_, /*nKey*/ 
-							(void*)0/*pData - 0 = remove*/) == 0 )
+						if( sjhashInsert(&oldForwardReceivers, this_, 0, (void*)0/*pData - 0 = remove*/) == 0 )
 						{
 							openProcess(this_, other_);
 						}
@@ -413,7 +420,8 @@ void checkForwarding()
 		elemThis = sjhashFirst(&oldForwardReceivers);
 		while( elemThis )
 		{
-			this_ = (BASS_VST_PLUGIN*)sjhashKeysize(elemThis);
+			this_ = (BASS_VST_PLUGIN*)sjhashKey(elemThis);
+
 			closeProcess(this_);
 
 			elemThis = sjhashNext(elemThis);

@@ -156,7 +156,7 @@ void idleDo()
 					elem = sjhashFirst(&s_unloadPendingInstances);
 					while( elem )
 					{
-						HINSTANCE inst = (HINSTANCE)sjhashKeysize(elem);
+						HINSTANCE inst = (HINSTANCE)sjhashKey(elem); 
 						long      unloadCount = (long)sjhashData(elem);
 
 						while( unloadCount > 0 )
