@@ -29,3 +29,4 @@ EXPORTS
 	BASS_VST_SetLanguage
 	BASS_VST_ProcessEvent
 	BASS_VST_ProcessEventRaw
+	BASS_VST_CleanUpPlugins
