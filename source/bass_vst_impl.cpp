@@ -603,9 +603,15 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 			if( createFlags & BASS_UNICODE )
 			{
 				char ansiDllFile[MAX_PATH];
-				WideCharToMultiByte(CP_ACP, 0, (LPCWSTR)dllFile, -1, (char*)ansiDllFile, MAX_PATH, NULL, NULL);
-				this_->aeffect = LoadBridgedPlugin((char*)ansiDllFile);
-
+				BOOL failed;
+				WideCharToMultiByte(CP_ACP, 0, (LPCWSTR)dllFile, -1, (char*)ansiDllFile, MAX_PATH, NULL, &failed);
+				if(failed) 
+				{
+				    wchar_t shortDllFile[MAX_PATH];	
+					GetShortPathNameW((LPCWSTR)dllFile, (LPWSTR)shortDllFile, MAX_PATH); 
+					WideCharToMultiByte(CP_ACP, 0, (LPCWSTR)shortDllFile, -1, (char*)ansiDllFile, MAX_PATH, NULL, NULL);
+				}
+				this_->aeffect = LoadBridgedPlugin((char*)ansiDllFile);	
 			}
 			else
 			{ 
