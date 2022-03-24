@@ -310,6 +310,17 @@ static void callProcess(BASS_VST_PLUGIN* this_, BASS_VST_PLUGIN* buffers, long n
 	{
 		// do MIDI processing
 		EnterCriticalSection(&this_->midiCritical_);
+		
+		//falco: for proper deltaFrames calculation.
+		if ( this_->queryPerformanceUnit != 0.0 ) 
+		{
+			QueryPerformanceCounter(&this_->pluginTimeQp);
+		}
+		else
+		{
+			this_->pluginTimeMs = timeGetTime(); 
+		}
+		
 		if( this_->midiEventsCurr && this_->midiEventsCurr->numEvents )
 		{
 			//falco: correction for very small buffers where deltaFrame values may go beyond actual block size. 
@@ -484,17 +495,7 @@ void CALLBACK doEffectProcess(HDSP dspHandle, DWORD channelHandle, void* buffer_
 	// processReplacing() as a separate function but rather use process())
 	enterVstCritical(this_);
 	if( !this_->doBypass )
-	{				
-		//falco: for proper deltaFrames calculation.
-		if ( this_->queryPerformanceUnit != 0.0 ) 
-		{
-			QueryPerformanceCounter(&this_->pluginTimeQp);
-		}
-		else
-		{
-			this_->pluginTimeMs = timeGetTime(); 
-		}
-
+	{			
 		this_->vstTimeInfo.samplePos += numSamples;
 		if( this_->vstTimeInfo.samplePos < 0.0 )
 			this_->vstTimeInfo.samplePos = 0.0;
