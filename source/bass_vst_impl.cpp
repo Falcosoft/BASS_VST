@@ -976,17 +976,17 @@ BOOL BASS_VSTDEF(BASS_VST_GetParamInfo)(DWORD vstHandle, int paramIndex, BASS_VS
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamLabel, paramIndex, 0, (void*)largeBuf, 0.0);
 		strncpy(info->unit, largeBuf, kVstMaxParamStrLen);
-		info->unit[kVstMaxParamStrLen] = 0;
+		info->unit[kVstMaxParamStrLen - 1] = 0;
 
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamDisplay, paramIndex, 0, (void*)largeBuf, 0.0);
 		strncpy(info->display, largeBuf, kVstMaxParamStrLen);
-		info->display[kVstMaxParamStrLen] = 0;
+		info->display[kVstMaxParamStrLen - 1] = 0;
 
 		largeBuf[0] = 0;
 		this_->aeffect->dispatcher(this_->aeffect, effGetParamName, paramIndex, 0, (void*)largeBuf, 0.0);
 		strncpy(info->name, largeBuf, kVstMaxParamStrLen);
-		info->name[kVstMaxParamStrLen] = 0;
+		info->name[kVstMaxParamStrLen - 1] = 0;
 
 		if (paramIndex < this_->numDefaultValues)
 			info->defaultValue = this_->defaultValues[paramIndex];
