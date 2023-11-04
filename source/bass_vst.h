@@ -26,9 +26,8 @@
  *  (C) Bjoern Petersen Software Design and Development
  *  VST PlugIn Interface Technology by Steinberg Media Technologies GmbH
  *
- *  Contact: drsilver@silverjuke.net - http://www.silverjuke.net
- *
- *  Our page on un4seen: http://www.un4seen.com/forum/?topic=5559.0
+ *  
+ *  https://github.com/Falcosoft/BASS_VST
  *
  *****************************************************************************
  *
@@ -121,8 +120,6 @@
  *****************************************************************************/
 
 
-
-
 #ifndef BASS_VST_H
 #define BASS_VST_H
 
@@ -133,8 +130,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-
 
 
 /* If you load the DLL using LoadLibrary() instead of using bass_vst.lib,
@@ -567,7 +562,7 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetScope)
  * VSTPROC* to a vstHandle.  The callback function is called with the BASS_VST_*
  * actions defined below then.  Unless defined otherwise, the callback function
  * should always return 0. The "user" parameter given to BASS_VST_SetCallback()
- * is just forwarded to the callback.
+ * is just forwarded to the callback. Falco: exceptions are BASS_VST_AUDIO_MASTER and BASS_VST_TEMPO_REQUEST where "user" is a pointer to BASS_VST_AUDIO_MASTER_PARAM or VstTimeInfo structs respectively (64-bit compatibility).
  *
  * Every vstHandle can have only one callback function; subsequent calls to
  * BASS_VST_SetCallback() for the same vstHandle will just change the callback
@@ -578,7 +573,7 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetScope)
 typedef DWORD (CALLBACK VSTPROC)(DWORD vstHandle, DWORD action, DWORD param1, DWORD param2, void* user);
 #define BASS_VST_PARAM_CHANGED  1   /* some parameters are changed by the editor opened by BASS_VST_EmbedEditor(), NOT posted if you call BASS_VST_SetParam(), param1=oldParamNum, param2=newParamNum */
 #define BASS_VST_EDITOR_RESIZED 2   /* the embedded editor window should be resized, the new width/height can be found in param1/param2 and in BASS_VST_GetInfo() */
-#define BASS_VST_AUDIO_MASTER   4   /* can be used to subclass the audioMaster callback, param1 is a pointer to a BASS_VST_AUDIO_MASTER_PARAM structure defined below. !!!falco: value changed from 3 so it can be used as a flag!!!*/
+#define BASS_VST_AUDIO_MASTER   4   /* can be used to subclass the audioMaster callback, user param is a pointer to a BASS_VST_AUDIO_MASTER_PARAM structure defined below. !!!falco: value changed from 3 so it can be used as a flag!!!*/
 #define BASS_VST_TEMPO_REQUEST  8   /* falco: can be used to set real tempo and time signature by the host. In the user param host gets VstTimeInfo struct to modify*/
 #define BASS_VST_ALL_CALLBACKS  0xFFFFFFFF  /* falco: All current or future events */
 
@@ -587,12 +582,10 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetCallback)
     (DWORD vstHandle, VSTPROC*, void* user, DWORD flags = BASS_VST_ALL_CALLBACKS);
 
 
-
-
 /* Subclassing BASS_VST: By using BASS_VST_SetCallback() and catching the
  * BASS_VST_AUDIO_MASTER events, you can subclass the communication between the
  * plugin and BASS_VST.  You'll find all needed parameters in a
- * BASS_VST_AUDIO_MASTER_PARAM structure given in param1 to the callback
+ * BASS_VST_AUDIO_MASTER_PARAM structure given in "user" to the callback
  * function.  To avoid the BASS_VST default processing on some opcodes, just
  * set the "doDefault" member to 0 - in this case BASS_VST just forwards your
  * return value to the plugin and does nothing else.  Initially, "doDefault"
@@ -612,7 +605,7 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetCallback)
  *      {
  *          if( action == BASS_VST_AUDIO_MASTER )
  *          {
- *              BASS_VST_AUDIO_MASTER_PARAM* audioMaster = (BASS_VST_AUDIO_MASTER_PARAM*)param1;
+ *              BASS_VST_AUDIO_MASTER_PARAM* audioMaster = (BASS_VST_AUDIO_MASTER_PARAM*)user;
  *              if( audioMaster->opcode == audioMasterOpenFileSelector )
  *              {
  *                  openMyFileSelector((VstFileSelect*)audioMaster->ptr);
@@ -685,7 +678,6 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_ProcessEvent)
 
 BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_ProcessEventRaw)
     (DWORD vstHandle, const void* event, DWORD length);
-
 
 
 /* If any BASS_VST function fails, you can use BASS_ErrorGetCode() to obtain

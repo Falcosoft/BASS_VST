@@ -46,7 +46,6 @@
 
 
 
-
 /*****************************************************************************
  *  Main()
  *****************************************************************************/
@@ -276,11 +275,13 @@ static VstIntPtr audioMasterCallbackImpl(AEffect* aeffect_, // on load, aeffect_
 		amp.ptr			= ptr;
 		amp.opt			= opt;
 		amp.doDefault	= 1;
-		unrefHandle(vstHandle);
-			ret = callback(vstHandle, BASS_VST_AUDIO_MASTER, (DWORD)&amp, 0, callbackUserData);
-			if( amp.doDefault == 0 )
+		unrefHandle(vstHandle);			
+
+		ret = callback(vstHandle, BASS_VST_AUDIO_MASTER, 0, 0, &amp);
+	
+		if( amp.doDefault == 0 )
 				return ret;
-			ret = 0;
+		ret = 0;
 		this_ = refHandle(vstHandle); // reallocate the handle
 		if( this_ == NULL )
 			return 0;
@@ -611,7 +612,8 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 					GetShortPathNameW((LPCWSTR)dllFile, (LPWSTR)shortDllFile, MAX_PATH); 
 					WideCharToMultiByte(CP_ACP, 0, (LPCWSTR)shortDllFile, -1, (char*)ansiDllFile, MAX_PATH, NULL, NULL);
 				}
-				this_->aeffect = LoadBridgedPlugin((char*)ansiDllFile);	
+				this_->aeffect = LoadBridgedPlugin((char*)ansiDllFile);			
+							
 			}
 			else
 			{ 
