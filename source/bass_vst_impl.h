@@ -16,7 +16,6 @@
  *****************************************************************************/
 
 
-
 #ifndef __BASS_VST_IMPL_H__
 #define __BASS_VST_IMPL_H__
 
@@ -186,10 +185,12 @@ void					updateIdleTimers(BASS_VST_PLUGIN*); // call this if needsIdle has chang
 void					createIdleTimers();
 void					killIdleTimers();
 
-#define					IDLE_FREQ 50 /*ms = 20Hz*/
+#define					IDLE_FREQ 40 /*ms = 25Hz*/
 #define					IDLE_UNLOAD_PENDING_COUNTDOWN (5000/*5 seconds*/ / IDLE_FREQ) //Falcosoft: some plugins require complete unload and 10 sec wait is too much...
 
-
+//falco: you can set host info by API
+static char hostVendorStr[64] = {0};
+static char hostProductStr[64] = {0};
 
 // buffers
 void					freeChansBuffers(BASS_VST_PLUGIN*);
@@ -215,3 +216,4 @@ void					fileSelClose(BASS_VST_PLUGIN* this_, VstFileSelect* vstFs);
 
 
 #endif /* __BASS_VST_IMPL_H__ */
+

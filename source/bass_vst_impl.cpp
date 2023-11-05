@@ -78,7 +78,7 @@ static void mainInit()
 	if( !(s_bassfunc=(BASS_FUNCTIONS*)GetProcAddress(GetModuleHandle("bass"),"_"))
 	 || (BASS_GetVersion()!=MAKELONG(2,2) && HIWORD(BASS_GetVersion())!=0x0203 && HIWORD(BASS_GetVersion())!=0x0204) )
 	{
-		MessageBox(0,"Incorrect BASS.DLL version (2.2 - 2.4 is required)", "BASS_VST" BASS_VST_VERSION_STR,MB_ICONERROR);
+		MessageBox(0,"Incorrect BASS.DLL version (2.2 - 2.4 is required)", "BASS_VST " stringify(BASS_VST_VERSION_MAJOR) "." stringify(BASS_VST_VERSION_MINOR), MB_ICONERROR);
 		return;
 	}
 
@@ -361,17 +361,23 @@ static VstIntPtr audioMasterCallbackImpl(AEffect* aeffect_, // on load, aeffect_
 			break;
 
 		case audioMasterGetVendorString:		// fills <ptr> with a string identifying the vendor (max 64 char)
-			strcpy((char*)ptr, "Bjoern Petersen Software Design and Development"/*max 64 char!*/);
+			if (!strcmp(hostVendorStr, ""))
+				strcpy((char*)ptr, "Bjoern Petersen Software Design and Development"/*max 64 char!*/);
+			else
+				strcpy((char*)ptr, hostVendorStr);
 			ret = true;
 			break;
 
 		case audioMasterGetProductString:		// fills <ptr> with a string with product name (max 64 char)
-			strcpy((char*)ptr, "BASS_VST @ Silverjuke.Net");
+			if (!strcmp(hostProductStr, ""))
+				strcpy((char*)ptr, "BASS_VST @ Silverjuke.Net");
+			else
+				strcpy((char*)ptr, hostProductStr);
 			ret = true;
 			break;
 
 		case audioMasterGetVendorVersion:		// returns vendor-specific version
-			ret = BASS_VST_VERSION_HEX;
+			ret = BASS_VST_VERSION_MAJOR * 1000 + BASS_VST_VERSION_MINOR * 100 + BASS_VST_VERSION_REVISION * 10 + BASS_VST_VERSION_BUILD;
 			break;
 
 		case audioMasterCanDo:					// string in ptr, see below
@@ -1343,6 +1349,22 @@ BOOL BASS_VSTDEF(BASS_VST_SetEditKnobMode)(DWORD vstHandle, int knobMode)
 BOOL BASS_VSTDEF(BASS_VST_CleanUpPlugins)()
 {	
     cleanUpPlugins();
+	
+	RETURN_SUCCESS(true);
+}
+
+BOOL BASS_VSTDEF(BASS_VST_SetVendorProductStr)(char* vendorStr, char* productStr)
+{	
+   
+	EnterCriticalSection(&s_idleCritical);
+	
+	if(vendorStr)
+	   strncpy(hostVendorStr, vendorStr, 64); 
+   
+	if(productStr)
+	   strncpy(hostProductStr, productStr, 64); 
+	
+	LeaveCriticalSection(&s_idleCritical);
 	
 	RETURN_SUCCESS(true);
 }

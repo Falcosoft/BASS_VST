@@ -31,8 +31,9 @@ LANGUAGE LANG_HUNGARIAN, SUBLANG_DEFAULT
 //
 
 1 VERSIONINFO
- FILEVERSION 2,4,0,14
- PRODUCTVERSION 2,4,0,14
+ FILEVERSION BASS_VST_VERSION_MAJOR, BASS_VST_VERSION_MINOR, BASS_VST_VERSION_REVISION, BASS_VST_VERSION_BUILD
+ PRODUCTVERSION BASS_VST_VERSION_MAJOR, BASS_VST_VERSION_MINOR, BASS_VST_VERSION_REVISION, BASS_VST_VERSION_BUILD
+ 
  FILEFLAGSMASK 0x0L
 #ifdef _DEBUG
  FILEFLAGS 0x21L
@@ -50,14 +51,14 @@ BEGIN
             VALUE "Comments", "\0"
             VALUE "CompanyName", "Bjoern Petersen Software Design and Development\0"
             VALUE "FileDescription", "VST host for BASS 2.4\0"
-            VALUE "FileVersion", "2.4.0.14\0"
+            VALUE "FileVersion", stringify(BASS_VST_VERSION_MAJOR) "." stringify(BASS_VST_VERSION_MINOR) "." stringify(BASS_VST_VERSION_REVISION) "." stringify(BASS_VST_VERSION_BUILD)
             VALUE "InternalName", "\0"
             VALUE "LegalCopyright", "©Bjoern Petersen Software Design and Development\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "\0"
             VALUE "PrivateBuild", "\0"
             VALUE "ProductName", "\0"
-            VALUE "ProductVersion", "2, 4, 0, 14\0"
+            VALUE "ProductVersion", stringify(BASS_VST_VERSION_MAJOR) "." stringify(BASS_VST_VERSION_MINOR) "." stringify(BASS_VST_VERSION_REVISION) "." stringify(BASS_VST_VERSION_BUILD)
             VALUE "SpecialBuild", "SoundFont Midi Player by Falcosoft\0"
         END
     END

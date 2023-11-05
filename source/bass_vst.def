@@ -30,3 +30,4 @@ EXPORTS
 	BASS_VST_ProcessEvent
 	BASS_VST_ProcessEventRaw
 	BASS_VST_CleanUpPlugins
+	BASS_VST_SetVendorProductStr

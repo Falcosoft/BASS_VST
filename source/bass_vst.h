@@ -421,6 +421,13 @@ BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetEditKnobMode)
 BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_CleanUpPlugins)
 	();
 
+/* Falco - v2.4.0.14
+ * You should use BASS_VST_SetVendorProductStr before loading plugins to set host info.
+ * Both strings are global so all plugins that are loaded after calling the function get the right info.
+ */
+BASS_VSTSCOPE BOOL BASS_VSTDEF(BASS_VST_SetVendorProductStr)
+	(char* vendorStr, char* productStr); // each can be 64 characters max.
+
 
 /* Call BASS_VST_Resume() after playback position changes or sth. like that.
  * This will reset the internal VST buffers which may remember some "old" data.
