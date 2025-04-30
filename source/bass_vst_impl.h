@@ -102,9 +102,11 @@ typedef struct
 	char*				tempChunkData;
 
 	// process handling
-	#define				MAX_CHANS 32
-	float*				buffersIn[MAX_CHANS];
-	float*				buffersOut[MAX_CHANS];
+	//#define				MAX_CHANS 64 //falco: use dynamic arrays instead of fixed MAX_CHANS sized ones... 
+	float**				buffersIn;
+	float**				buffersOut;
+	int 	  			numInputChans;
+	int 				numOutputChans;
 	long				bytesPerInOutBuffer;
 
 	float*				bufferTemp;

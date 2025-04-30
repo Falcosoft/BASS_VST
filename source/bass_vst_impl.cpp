@@ -586,7 +586,7 @@ BOOL IsWow64()
 
 static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD createFlags)
 {
-	dllMainEntryFuncType dllMainEntryFuncPtr;
+	dllMainEntryFuncType dllMainEntryFuncPtr;	
 	this_->hinst = NULL;
 	
 	// init some values
@@ -665,14 +665,14 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 		return false;
 	}
 	this_->aeffect->resvd1 = (long)this_->vstHandle;
-	s_inConstructionVstHandle = 0;
-	
+	s_inConstructionVstHandle = 0;	
+
 	// check if there are enough inputs / outputs
 	if( this_->type==VSTeffect && this_->aeffect->numInputs <= 0 )
 	{
 		SET_ERROR(BASS_VST_ERROR_NOINPUTS);
 		return false;
-	}
+	}	
 	
 	if(  this_->aeffect->numOutputs <= 0 
 		|| (this_->type==VSTinstrument && !(this_->aeffect->flags&effFlagsIsSynth)) )
@@ -680,6 +680,19 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 		SET_ERROR(BASS_VST_ERROR_NOOUTPUTS);
 		return false;
 	}
+
+
+	//falco: use dynamic arrays instead of fixed MAX_CHANS sized ones... 
+	BASS_CHANNELINFO channelInfo = {};
+	BASS_ChannelGetInfo(this_->channelHandle, &channelInfo);
+
+	this_->numInputChans = this_->aeffect->numInputs < (int)channelInfo.chans ? (int)channelInfo.chans : this_->aeffect->numInputs;
+	this_->buffersIn = (float**)calloc(this_ ->numInputChans, sizeof(float*)); 
+	if(!this_->buffersIn) return false;
+
+	this_->numOutputChans = this_->aeffect->numOutputs < (int)channelInfo.chans ? (int)channelInfo.chans : this_->aeffect->numOutputs;
+	this_->buffersOut = (float**)calloc(this_ ->numOutputChans, sizeof(float*)); 
+	if(!this_->buffersOut) return false;
 	
 	// call effOpen - call this before dispatching anything else!
 	this_->aeffect->dispatcher(this_->aeffect, effOpen, 0, 0, NULL, 0.0); // effOpen has no return value for errors

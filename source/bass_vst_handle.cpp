@@ -191,6 +191,11 @@ static void destroyHandle(BASS_VST_PLUGIN* this_)
 	freeChansBuffers(this_);
 	freeTempBuffer(this_);
 
+	if(this_->buffersIn) free(this_->buffersIn);
+	if(this_->buffersOut) free(this_->buffersOut);
+    this_->buffersIn = NULL;
+	this_->buffersOut = NULL;
+
 	free(this_);
 }
 
