@@ -181,23 +181,23 @@ static bool allocChanBuffers(BASS_VST_PLUGIN* this_, long numInputs, long numOut
 
 		// allocated the new buffers
 		int i;
-		for( i = 0; i < numInputs; i++ )
+		int loopCounter = max(numInputs, numOutputs); 
+		for( i = 0; i < loopCounter; i++ )
 		{ 
-			if( (this_->buffersIn[i]=(float*)malloc(numBytes*BUFFER_HEADROOM_MULT)) == NULL )
-			{
-				freeChansBuffers(this_);
-				return false;
-			}
-		}
+			if (i < numInputs)
+				if( (this_->buffersIn[i]=(float*)malloc(numBytes*BUFFER_HEADROOM_MULT)) == NULL )
+				{
+					freeChansBuffers(this_);
+					return false;
+				}
 
-		for( i = 0; i < numOutputs; i++ )
-		{
-			if( (this_->buffersOut[i]=(float*)malloc(numBytes*BUFFER_HEADROOM_MULT)) == NULL )
-			{
-				freeChansBuffers(this_);
-				return false;
-			}
-		}
+			if (i < numOutputs)
+				if( (this_->buffersOut[i]=(float*)malloc(numBytes*BUFFER_HEADROOM_MULT)) == NULL )
+				{
+					freeChansBuffers(this_);
+					return false;
+				}
+		}		
 
 		this_->bytesPerInOutBuffer = numBytes;
 
@@ -224,24 +224,23 @@ void freeChansBuffers(BASS_VST_PLUGIN* this_)
 {
 	if( this_ )
 	{
-		for( int i = 0; i < this_ ->numInputChans; i++ )
+		int loopCounter = max(this_ ->numInputChans, this_ ->numOutputChans); 
+		for( int i = 0; i < loopCounter; i++ )
 		{
-			if( this_->buffersIn[i] )
-			{
-				free(this_->buffersIn[i]);
-				this_->buffersIn[i] = NULL;
-			}
-			
-		}
+			if (i < this_ ->numInputChans)
+				if( this_->buffersIn[i] )
+				{
+					free(this_->buffersIn[i]);
+					this_->buffersIn[i] = NULL;
+				}
 
-		for( int i = 0; i < this_ ->numOutputChans; i++ )
-		{		
-			if( this_->buffersOut[i] )
-			{
-				free(this_->buffersOut[i]);
-				this_->buffersOut[i] = NULL;
-			}
-		}
+			if (i < this_ ->numOutputChans)
+				if( this_->buffersOut[i] )
+				{
+					free(this_->buffersOut[i]);
+					this_->buffersOut[i] = NULL;
+				}			
+		}		
 
 		this_->bytesPerInOutBuffer = 0;
 		
@@ -358,37 +357,47 @@ static void callProcess(BASS_VST_PLUGIN* this_, BASS_VST_PLUGIN* buffers, long n
 			{
 				// convert all buffers to double; the output buffer is already emptied incl. the double headroom
 				double** doubleIn = (double**)malloc(this_ ->numInputChans * sizeof(double*));
-				double** doubleOut = (double**)malloc(this_ ->numOutputChans * sizeof(double*));; 
-				
-				int i;				
-				for( i = 0; i < this_ ->numInputChans; i++ )
-				{
-					doubleIn[i] = (double*)buffers->buffersIn[i];
-					if( doubleIn[i] )
-						cnvFloatToDouble(buffers->buffersIn[i], doubleIn[i], numSamples*sizeof(float));					
-				}
+				double** doubleOut = (double**)malloc(this_ ->numOutputChans * sizeof(double*));
 
-				for( i = 0; i < this_ ->numOutputChans; i++ )
-				{				
-					doubleOut[i] = (double*)buffers->buffersOut[i]; 
+				if(!doubleIn || !doubleOut) 
+				{
+					if (doubleIn) free(doubleIn);
+					if (doubleOut) free(doubleOut);
+					return;
 				}
+				
+				
+				int loopCounter = max(this_ ->numInputChans, this_ ->numOutputChans); 
+				int i;	
+				for( i = 0; i < loopCounter; i++ )
+				{
+					if (i < this_ ->numInputChans)
+					{
+						doubleIn[i] = (double*)buffers->buffersIn[i];
+						if( doubleIn[i] )
+							cnvFloatToDouble(buffers->buffersIn[i], doubleIn[i], numSamples*sizeof(float));
+					}
+					
+					if (i < this_ ->numOutputChans)
+						doubleOut[i] = (double*)buffers->buffersOut[i]; 
+				}
+				
 
 				// do process double replacing
 				this_->aeffect->processDoubleReplacing(this_->aeffect, doubleIn, doubleOut, numSamples);
 
 				// convert all buffers back to floats; this is also needed for the input buffers as 
 				// callProcess() may be called for several instances of effects (eg. for editor forwarding)
-				for( i = 0; i < this_ ->numInputChans; i++ )
+				for( i = 0; i < loopCounter; i++ )
 				{
-					if( doubleIn[i] )
-						cnvDoubleToFloat(doubleIn[i], buffers->buffersIn[i], numSamples*sizeof(double));					
-				}
-
-				for( i = 0; i < this_ ->numOutputChans; i++ )
-				{			
-					if( doubleOut[i] )
-						cnvDoubleToFloat(doubleOut[i], buffers->buffersOut[i], numSamples*sizeof(double));
-				}
+					if (i < this_ ->numInputChans)
+						if( doubleIn[i] )
+							cnvDoubleToFloat(doubleIn[i], buffers->buffersIn[i], numSamples*sizeof(double));
+					
+					if (i < this_ ->numOutputChans)
+						if( doubleOut[i] )
+							cnvDoubleToFloat(doubleOut[i], buffers->buffersOut[i], numSamples*sizeof(double));
+				}				
 
 				free(doubleIn);
 				free(doubleOut);
