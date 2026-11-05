@@ -66,6 +66,10 @@
 
 // flag to indicate if mainInit was successful or not
 static bool s_mainOk = false;
+static HMODULE s_bassVstModule;
+static CRITICAL_SECTION s_vstEntryCritical;
+typedef DWORD (WINAPI *GetLastErrorProc)(void);
+static GetLastErrorProc s_getLastError;
 
 
 
@@ -85,6 +89,7 @@ static void mainInit()
 	initHandleHandling();
 
 	InitializeCriticalSection(&s_idleCritical);
+	InitializeCriticalSection(&s_vstEntryCritical);
 	sjhashInit(&s_idleHash, SJHASH_INT, /*keytype*/ 0/*copyKey*/);
 	sjhashInit(&s_unloadPendingInstances, SJHASH_POINTER, /*keytype*/ 0/*copyKey*/);
 
@@ -107,6 +112,7 @@ static void mainExit()
 	exitHandleHandling();			
 	
 	DeleteCriticalSection(&s_idleCritical);
+	DeleteCriticalSection(&s_vstEntryCritical);
 	sjhashClear(&s_idleHash);
 	sjhashClear(&s_unloadPendingInstances);
 	
@@ -126,6 +132,8 @@ BOOL APIENTRY DllMain(HANDLE hModule, DWORD ul_reason_for_call, LPVOID lpReserve
     switch( ul_reason_for_call )
 	{
 		case DLL_PROCESS_ATTACH:
+			s_bassVstModule = (HMODULE)hModule;
+			s_getLastError = (GetLastErrorProc)GetProcAddress(GetModuleHandle("kernel32"), "GetLastError");
 			mainInit();
 			if( !s_mainOk )
 				return FALSE;
@@ -464,208 +472,135 @@ static void CALLBACK onChannelDestroy(HSYNC handle, DWORD channel, DWORD data, U
 }
 
 
-#define PROXY_REGKEY        "Software\\JBridge"
+typedef AEffect* (VSTCALLBACK *Vst2BridgeCreateAProc)(audioMasterCallback, const char*);
+typedef AEffect* (VSTCALLBACK *Vst2BridgeCreateWProc)(audioMasterCallback, const wchar_t*);
 
-#ifndef _M_AMD64
-#define PROXY_REGVAL        "Proxy32"  //use this for x86 builds
-#else
-#define PROXY_REGVAL        "Proxy64"  //use this for x64 builds
-#endif
- 
- // Typedef for BridgeMain proc
- typedef AEffect * (*PFNBRIDGEMAIN)( audioMasterCallback audiomaster, char * pszPluginPath );
- 
- //Check if it’s a plugin_name.xx.dll
- bool IsBootStrapDll(char * path)
- {
-	 bool ret = false;
-	 
-	 HMODULE hModule = LoadLibrary(path);
-	 if( !hModule )
-	 {
-		 //some error…
-		 return ret;
-	 }
-	 
-	 //Exported dummy function to identify this as a bootstrap dll.
-	 if( GetProcAddress(hModule, "JBridgeBootstrap") )
-	 {
-		 //it’s a bootstrap dll
-		 ret = true;
-	 }
-	 
-	 FreeLibrary( hModule );
-	 
-	 return ret;
- }
-
- //*******************************
- 
- //receives the plugin’s path as an argument
- 
-AEffect * LoadBridgedPlugin(char * szPath)  //falco: direct Jbridge support
- {
-	 
- /*optional, but recommended
- please note that this will cause the bootstrap dlls (plugin_name.xx.dll) to be ignored,
-	 which may not be desirable if your host relies on the plugin’s location rather than its ID*/
-	 if( IsBootStrapDll( szPath ) )
-	 {
-		 //MessageBox(GetActiveWindow(), “This is a bootstrap dll. Therefore, it will be ignored.”, “Warning”, MB_OK|MB_ICONHAND);
-		 return 0;
-	 }
-	 
-	 // Get path to JBridge proxy
-	 CHAR szProxyPath[MAX_PATH];
-	 szProxyPath[0]=0 ;
-	 HKEY hKey;
-	 if ( RegOpenKey(HKEY_LOCAL_MACHINE, PROXY_REGKEY, &hKey) == ERROR_SUCCESS )
-	 {
-		 DWORD dw=sizeof(szProxyPath);
-		 RegQueryValueEx(hKey, PROXY_REGVAL, NULL, NULL, (LPBYTE)szProxyPath, &dw);
-		 RegCloseKey(hKey);
-	 }
-	 
-	 // Check key found and file exists
-	 if ( szProxyPath[0]==0 )
-	 {
-		 //MessageBox(GetActiveWindow(), “Unable to locate proxy DLL”, “Warning”, MB_OK|MB_ICONHAND);
-		 return NULL;
-	 }
-	 
-	 // Load proxy DLL
-	 HMODULE hModuleProxy=LoadLibrary(szProxyPath);
-	 if (!hModuleProxy)
-	 {
-		 //MessageBox(GetActiveWindow(), “Failed to load proxy”, “Warning”, MB_OK|MB_ICONHAND);
-		 return NULL;
-	 }
-	 
-	 // Get entry point
-	 PFNBRIDGEMAIN pfnBridgeMain=(PFNBRIDGEMAIN)GetProcAddress(hModuleProxy, "BridgeMain");
-	 if (!pfnBridgeMain)
-	 {
-		 FreeLibrary(hModuleProxy);
-		 //MessageBox(GetActiveWindow(), “BridgeMain entry point not found”, “JBridge”, MB_OK|MB_ICONHAND);
-		 return NULL;
-	 }
-	 
-	 return pfnBridgeMain(audioMasterCallbackImpl, szPath );
-	 
- }
-
-#ifndef _M_AMD64
-typedef BOOL (WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
-
-LPFN_ISWOW64PROCESS fnIsWow64Process;
-
-BOOL IsWow64()
+static bool isOppositeBitnessDll(const void* dllFile, BOOL unicode)
 {
-    BOOL bIsWow64 = FALSE;
-   
-    fnIsWow64Process = (LPFN_ISWOW64PROCESS) GetProcAddress(
-        GetModuleHandle(TEXT("kernel32")),"IsWow64Process");
-	
-    if(NULL != fnIsWow64Process)
-    {
-        if (!fnIsWow64Process(GetCurrentProcess(),&bIsWow64))
-        {
-            return FALSE;
-        }
-    }
-    return bIsWow64;
-}
+	// Resolve the bridge-only APIs at runtime so native Win9x loading has no new imports.
+	HMODULE kernel = GetModuleHandle("kernel32");
+#ifndef _M_AMD64
+	typedef BOOL (WINAPI *IsWow64ProcessProc)(HANDLE, PBOOL);
+	IsWow64ProcessProc isWow64 = (IsWow64ProcessProc)GetProcAddress(kernel, "IsWow64Process");
+	BOOL wow64 = FALSE;
+	if( !isWow64 || !isWow64(GetCurrentProcess(), &wow64) || !wow64 )
+		return false;
 #endif
 
- //##############################################
+	typedef HANDLE (WINAPI *CreateFileProc)(const void*, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+	typedef BOOL (WINAPI *ReadFileProc)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+	typedef DWORD (WINAPI *SetFilePointerProc)(HANDLE, LONG, PLONG, DWORD);
+	typedef BOOL (WINAPI *CloseHandleProc)(HANDLE);
+	CreateFileProc openFile = (CreateFileProc)GetProcAddress(kernel, unicode ? "CreateFileW" : "CreateFileA");
+	ReadFileProc readFile = (ReadFileProc)GetProcAddress(kernel, "ReadFile");
+	SetFilePointerProc seekFile = (SetFilePointerProc)GetProcAddress(kernel, "SetFilePointer");
+	CloseHandleProc closeFile = (CloseHandleProc)GetProcAddress(kernel, "CloseHandle");
+	if( !openFile || !readFile || !seekFile || !closeFile )
+		return false;
 
-//FILE *out = fopen("bass_vst2.log", "a");
-//fprintf(out, "%s %S\r\n", "loadVstLibrary called", dllFile);
-//fflush(out);
-//fclose(out);
+	HANDLE file = openFile(dllFile, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if( file == INVALID_HANDLE_VALUE )
+		return false;
+
+	IMAGE_DOS_HEADER dos;
+	IMAGE_NT_HEADERS32 pe;
+	DWORD bytesRead;
+	bool opposite = false;
+	if( readFile(file, &dos, sizeof(dos), &bytesRead, NULL) && bytesRead == sizeof(dos)
+	 && dos.e_magic == IMAGE_DOS_SIGNATURE && dos.e_lfanew >= (LONG)sizeof(dos)
+	 && seekFile(file, dos.e_lfanew, NULL, FILE_BEGIN) == (DWORD)dos.e_lfanew
+	 && readFile(file, &pe, sizeof(pe), &bytesRead, NULL) && bytesRead == sizeof(pe)
+	 && pe.Signature == IMAGE_NT_SIGNATURE && (pe.FileHeader.Characteristics & IMAGE_FILE_DLL) )
+	{
+#ifdef _M_AMD64
+		opposite = pe.FileHeader.Machine == IMAGE_FILE_MACHINE_I386
+		        && pe.FileHeader.SizeOfOptionalHeader >= sizeof(IMAGE_OPTIONAL_HEADER32)
+		        && pe.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC;
+#else
+		opposite = pe.FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64
+		        && pe.FileHeader.SizeOfOptionalHeader >= sizeof(IMAGE_OPTIONAL_HEADER64)
+		        && pe.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC;
+#endif
+	}
+	closeFile(file);
+	return opposite;
+}
+
+static HMODULE loadVst2Bridge()
+{
+#ifdef _M_AMD64
+	static const WCHAR bridgeName[] = L"VST2Bridge\\vst2bridge-x64.dll";
+#else
+	static const WCHAR bridgeName[] = L"VST2Bridge\\vst2bridge-x86.dll";
+#endif
+	typedef DWORD (WINAPI *GetModuleFileNameWProc)(HMODULE, LPWSTR, DWORD);
+	GetModuleFileNameWProc moduleName = (GetModuleFileNameWProc)
+		GetProcAddress(GetModuleHandle("kernel32"), "GetModuleFileNameW");
+	WCHAR path[MAX_PATH];
+	DWORD len = moduleName ? moduleName(s_bassVstModule, path, MAX_PATH) : 0;
+	if( !len || len >= MAX_PATH )
+		return NULL;
+
+	while( len && path[len - 1] != L'\\' && path[len - 1] != L'/' )
+		len--;
+	if( !len || len + sizeof(bridgeName) / sizeof(WCHAR) > MAX_PATH )
+		return NULL;
+
+	memcpy(path + len, bridgeName, sizeof(bridgeName));
+	return LoadLibraryW(path);
+}
+
+
 
 static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD createFlags)
 {
-	dllMainEntryFuncType dllMainEntryFuncPtr;	
-	this_->hinst = NULL;
-	
-	// init some values
-	this_->createFlags						= createFlags;
-	
-	// load the library
-	if( createFlags & BASS_UNICODE )
-		this_->hinst = LoadLibraryW((const LPCWSTR)dllFile);
-	else
-		this_->hinst = LoadLibraryA((const char*)dllFile);		
+	const BOOL unicode = (createFlags & BASS_UNICODE) != 0;
+	this_->createFlags = createFlags;
+	this_->hinst = unicode ? LoadLibraryW((LPCWSTR)dllFile) : LoadLibraryA((LPCSTR)dllFile);
 
-	
-	if( this_->hinst == NULL )	{	
-		
-    	       //falco: direct Jbridge support
-		#ifndef _M_AMD64
-		if (IsWow64())
-		#endif
-		{
-			s_inConstructionVstHandle = this_->vstHandle;
-			if( createFlags & BASS_UNICODE )
-			{
-				char ansiDllFile[MAX_PATH];
-				BOOL failed;
-				WideCharToMultiByte(CP_ACP, 0, (LPCWSTR)dllFile, -1, (char*)ansiDllFile, MAX_PATH, NULL, &failed);
-				if(failed) 
-				{
-				    wchar_t shortDllFile[MAX_PATH];	
-					GetShortPathNameW((LPCWSTR)dllFile, (LPWSTR)shortDllFile, MAX_PATH); 
-					WideCharToMultiByte(CP_ACP, 0, (LPCWSTR)shortDllFile, -1, (char*)ansiDllFile, MAX_PATH, NULL, NULL);
-				}
-				this_->aeffect = LoadBridgedPlugin((char*)ansiDllFile);			
-							
-			}
-			else
-			{ 
-				this_->aeffect = LoadBridgedPlugin((char*)dllFile);	
-			}	
-		}
-		#ifndef _M_AMD64
-		else 
-		{
-			SET_ERROR(BASS_ERROR_FILEFORM);
-			return false;
-		}
-		#endif
-		
+	FARPROC entry;
+	if( this_->hinst )
+	{
+		entry = GetProcAddress(this_->hinst, "VSTPluginMain");
+		if( !entry )
+			entry = GetProcAddress(this_->hinst, "main");
 	}
 	else
 	{
-		
-		// get the plugin pointer
-		dllMainEntryFuncPtr = (dllMainEntryFuncType)GetProcAddress(this_->hinst, "VSTPluginMain");
-		if( dllMainEntryFuncPtr == NULL )
-		{
-			dllMainEntryFuncPtr = (dllMainEntryFuncType)GetProcAddress(this_->hinst, "main");
-			if( dllMainEntryFuncPtr == NULL )
-			{
-				SET_ERROR(BASS_ERROR_FILEFORM);
-				return false;
-			}
-		}
-		
-		// get the aeffect instance
-		s_inConstructionVstHandle = this_->vstHandle;
-		this_->aeffect = (dllMainEntryFuncPtr)(audioMasterCallbackImpl);
+		DWORD loadError = s_getLastError ? s_getLastError() : 0;
+		if( (loadError != ERROR_BAD_EXE_FORMAT && loadError != ERROR_EXE_MACHINE_TYPE_MISMATCH)
+		 || !isOppositeBitnessDll(dllFile, unicode) )
+			RETURN_ERROR(BASS_ERROR_FILEFORM)
+
+		this_->hinst = loadVst2Bridge();
+		if( !this_->hinst )
+			RETURN_ERROR(BASS_ERROR_FILEOPEN)
+
+		this_->directBridge = true;
+		entry = GetProcAddress(this_->hinst, unicode ? "VST2BridgeCreateW" : "VST2BridgeCreateA");
 	}
-	
-	if(  this_->aeffect == NULL 
-		||  this_->aeffect->magic != kEffectMagic
-		|| (this_->aeffect->__processDeprecated == NULL && this_->aeffect->processReplacing == NULL && !canDoubleReplacing(this_))
-		||  this_->aeffect->dispatcher == NULL )
-	{
-		SET_ERROR(BASS_ERROR_FILEFORM);
-		s_inConstructionVstHandle = 0;
-		return false;
-	}
-	this_->aeffect->resvd1 = (long)this_->vstHandle;
-	s_inConstructionVstHandle = 0;	
+	if( !entry )
+		RETURN_ERROR(BASS_ERROR_FILEFORM)
+
+	// The bridge can call audioMaster on another thread before its AEffect is available.
+	EnterCriticalSection(&s_vstEntryCritical);
+	DWORD previousHandle = s_inConstructionVstHandle;
+	s_inConstructionVstHandle = this_->vstHandle;
+	if( !this_->directBridge )
+		this_->aeffect = ((dllMainEntryFuncType)entry)(audioMasterCallbackImpl);
+	else if( unicode )
+		this_->aeffect = ((Vst2BridgeCreateWProc)entry)(audioMasterCallbackImpl, (LPCWSTR)dllFile);
+	else
+		this_->aeffect = ((Vst2BridgeCreateAProc)entry)(audioMasterCallbackImpl, (LPCSTR)dllFile);
+
+	bool valid = this_->aeffect && this_->aeffect->magic == kEffectMagic && this_->aeffect->dispatcher
+	          && (this_->aeffect->__processDeprecated || this_->aeffect->processReplacing || canDoubleReplacing(this_));
+	if( valid )
+		this_->aeffect->resvd1 = (long)this_->vstHandle;
+	s_inConstructionVstHandle = previousHandle;
+	LeaveCriticalSection(&s_vstEntryCritical);
+	if( !valid )
+		RETURN_ERROR(BASS_ERROR_FILEFORM)
 
 	// check if there are enough inputs / outputs
 	if( this_->type==VSTeffect && this_->aeffect->numInputs <= 0 )
@@ -1750,7 +1685,7 @@ static void queueEventRaw(BASS_VST_PLUGIN* this_, char midi0, char midi1, char m
 		}
 
 		// find out the slot for the event
-		if( this_->midiEventsCurr->numEvents >= MAX_MIDI_EVENTS )
+		if( this_->midiEventsCurr->numEvents >= (this_->directBridge ? MAX_BRIDGE_MIDI_EVENTS : MAX_MIDI_EVENTS) )
 			{ *error = BASS_ERROR_MEM; goto Error; }
 
 		eSlot = &this_->midiEventsCurr->events[this_->midiEventsCurr->numEvents];

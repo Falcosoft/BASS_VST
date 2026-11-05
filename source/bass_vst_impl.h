@@ -87,6 +87,7 @@ typedef struct
 	// the underlying DLL
 	DWORD				createFlags;
 	HINSTANCE			hinst;
+	bool				directBridge;
 
 	// the underlying VST object
 	AEffect*			aeffect;
@@ -124,6 +125,7 @@ typedef struct
 	#define				NEEDS_EDIT_IDLE			0x01
 	#define				NEEDS_IDLE_OUTSIDE_EDIT 0x02
 	int					needsIdle;
+	DWORD				lastParamPollTime;
 
 	// editor stuff
 	bool				editorIsOpen;
@@ -136,6 +138,7 @@ typedef struct
 
 	// pending MIDI events, they're sended just before processReplacing is called
 	#define				MAX_MIDI_EVENTS 2048
+	#define				MAX_BRIDGE_MIDI_EVENTS 1024 // VST2Bridge protocol 2
 	VstEvents*			midiEventsCurr;
 	VstEvents*			midiEventsPrev;
 	CRITICAL_SECTION	midiCritical_;

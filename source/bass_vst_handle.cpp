@@ -141,8 +141,9 @@ static void destroyHandle(BASS_VST_PLUGIN* this_)
 		leaveVstCritical(this_);
 	}
 
-	// ... call effClose
-	if( this_->effOpenCalled )
+	// The bridge owns a helper as soon as its factory returns a proxy.
+	if( this_->effOpenCalled || (this_->directBridge && this_->aeffect
+	 && this_->aeffect->magic == kEffectMagic && this_->aeffect->dispatcher) )
 	{
 		enterVstCritical(this_);
 			this_->aeffect->dispatcher(this_->aeffect, effClose, 0, 0, NULL, 0.0);

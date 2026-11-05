@@ -23,6 +23,7 @@
 sjhash				s_idleHash;
 CRITICAL_SECTION	s_idleCritical;
 static UINT			s_idleTimerHandle = 0;
+static const DWORD PARAM_POLL_INTERVAL_MS = 200;
 
 sjhash				s_unloadPendingInstances;
 long				s_unloadPendingCountdown = 0;
@@ -123,7 +124,12 @@ void idleDo()
 							this_->aeffect->dispatcher(this_->aeffect, effEditIdle, 0, 0, NULL, 0.0);
 						leaveVstCritical(this_);
 
-						checkForChangedParam(this_);
+						if( this_->callback && (this_->callbackFlags & BASS_VST_PARAM_CHANGED)
+						 && timeGetTime() - this_->lastParamPollTime >= PARAM_POLL_INTERVAL_MS )
+						{
+							checkForChangedParam(this_);
+							this_->lastParamPollTime = timeGetTime();
+						}
 					}
 
 					if( this_->needsIdle == 0 )
