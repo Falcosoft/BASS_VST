@@ -472,8 +472,8 @@ static void CALLBACK onChannelDestroy(HSYNC handle, DWORD channel, DWORD data, U
 }
 
 
-typedef AEffect* (VSTCALLBACK *Vst2BridgeCreateAProc)(audioMasterCallback, const char*);
-typedef AEffect* (VSTCALLBACK *Vst2BridgeCreateWProc)(audioMasterCallback, const wchar_t*);
+typedef AEffect* (VSTCALLBACK *PathEntryAProc)(audioMasterCallback, const char*);
+typedef AEffect* (VSTCALLBACK *PathEntryWProc)(audioMasterCallback, const wchar_t*);
 
 static bool isOppositeBitnessDll(const void* dllFile, BOOL unicode)
 {
@@ -526,6 +526,25 @@ static bool isOppositeBitnessDll(const void* dllFile, BOOL unicode)
 	return opposite;
 }
 
+template <class Char>
+static bool getCompanionPath(Char* path, const Char* name, size_t nameLength, const char* moduleNameExport)
+{
+	typedef DWORD (WINAPI *GetModuleFileNameProc)(HMODULE, Char*, DWORD);
+	GetModuleFileNameProc moduleName = (GetModuleFileNameProc)
+		GetProcAddress(GetModuleHandle("kernel32"), moduleNameExport);
+	DWORD len = moduleName ? moduleName(s_bassVstModule, path, MAX_PATH) : 0;
+	if( !len || len >= MAX_PATH )
+		return false;
+
+	while( len && path[len - 1] != '\\' && path[len - 1] != '/' )
+		len--;
+	if( !len || len + nameLength > MAX_PATH )
+		return false;
+
+	memcpy(path + len, name, nameLength * sizeof(Char));
+	return true;
+}
+
 static HMODULE loadVst2Bridge()
 {
 #ifdef _M_AMD64
@@ -533,50 +552,109 @@ static HMODULE loadVst2Bridge()
 #else
 	static const WCHAR bridgeName[] = L"VST2Bridge\\vst2bridge-x86.dll";
 #endif
-	typedef DWORD (WINAPI *GetModuleFileNameWProc)(HMODULE, LPWSTR, DWORD);
-	GetModuleFileNameWProc moduleName = (GetModuleFileNameWProc)
-		GetProcAddress(GetModuleHandle("kernel32"), "GetModuleFileNameW");
 	WCHAR path[MAX_PATH];
-	DWORD len = moduleName ? moduleName(s_bassVstModule, path, MAX_PATH) : 0;
-	if( !len || len >= MAX_PATH )
-		return NULL;
-
-	while( len && path[len - 1] != L'\\' && path[len - 1] != L'/' )
-		len--;
-	if( !len || len + sizeof(bridgeName) / sizeof(WCHAR) > MAX_PATH )
-		return NULL;
-
-	memcpy(path + len, bridgeName, sizeof(bridgeName));
-	return LoadLibraryW(path);
+	return getCompanionPath(path, bridgeName, sizeof(bridgeName) / sizeof(WCHAR), "GetModuleFileNameW")
+	     ? LoadLibraryW(path) : NULL;
 }
 
+static HMODULE loadClap2Vst2(BOOL unicode)
+{
+#ifdef _M_AMD64
+	static const WCHAR wrapperName[] = L"VST2Bridge\\CLAP2VST2-x64.dll";
+#else
+	static const WCHAR wrapperName[] = L"VST2Bridge\\CLAP2VST2-x86.dll";
+#endif
+	WCHAR path[MAX_PATH];
+	if( getCompanionPath(path, wrapperName, sizeof(wrapperName) / sizeof(WCHAR), "GetModuleFileNameW") )
+		return LoadLibraryW(path);
+
+#ifndef _M_AMD64
+	// Win9x needs the ANSI module path and loader.
+	static const char wrapperNameA[] = "VST2Bridge\\CLAP2VST2-x86.dll";
+	char pathA[MAX_PATH];
+	if( !unicode && getCompanionPath(pathA, wrapperNameA, sizeof(wrapperNameA), "GetModuleFileNameA") )
+		return LoadLibraryA(pathA);
+#endif
+	return NULL;
+}
+
+static bool isClapFile(const void* file, BOOL unicode)
+{
+	if( !file )
+		return false;
+
+	if( unicode )
+	{
+		const WCHAR* path = (const WCHAR*)file;
+		size_t len = wcslen(path);
+		return len >= 5 && _wcsicmp(path + len - 5, L".clap") == 0;
+	}
+
+	const char* path = (const char*)file;
+	size_t len = strlen(path);
+	return len >= 5 && _stricmp(path + len - 5, ".clap") == 0;
+}
 
 
 static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD createFlags)
 {
 	const BOOL unicode = (createFlags & BASS_UNICODE) != 0;
 	this_->createFlags = createFlags;
-	this_->hinst = unicode ? LoadLibraryW((LPCWSTR)dllFile) : LoadLibraryA((LPCSTR)dllFile);
-
-	FARPROC entry;
-	if( this_->hinst )
+	this_->directClap = isClapFile(dllFile, unicode);
+	union
 	{
-		entry = GetProcAddress(this_->hinst, "VSTPluginMain");
-		if( !entry )
-			entry = GetProcAddress(this_->hinst, "main");
+		WCHAR wide[MAX_PATH];
+		char ansi[MAX_PATH];
+	} clapPath;
+
+	FARPROC entry = NULL;
+	if( this_->directClap )
+	{
+		// The wrapper takes a full path in the caller's original encoding.
+		typedef DWORD (WINAPI *GetFullPathNameProc)(const void*, DWORD, void*, void*);
+		GetFullPathNameProc fullPath = (GetFullPathNameProc)GetProcAddress(GetModuleHandle("kernel32"),
+			unicode ? "GetFullPathNameW" : "GetFullPathNameA");
+		void* path = unicode ? (void*)clapPath.wide : (void*)clapPath.ansi;
+		DWORD len = fullPath ? fullPath(dllFile, MAX_PATH, path, NULL) : 0;
+		if( !len || len >= MAX_PATH )
+			RETURN_ERROR(BASS_ERROR_FILEOPEN)
+
+		dllFile = path;
+		this_->directBridge = isOppositeBitnessDll(dllFile, unicode);
+		if( !this_->directBridge )
+		{
+			this_->hinst = loadClap2Vst2(unicode);
+			if( !this_->hinst )
+				RETURN_ERROR(BASS_ERROR_FILEOPEN)
+
+			entry = GetProcAddress(this_->hinst, unicode ? "CLAP2VST2CreateW" : "CLAP2VST2CreateA");
+		}
 	}
 	else
 	{
-		DWORD loadError = s_getLastError ? s_getLastError() : 0;
-		if( (loadError != ERROR_BAD_EXE_FORMAT && loadError != ERROR_EXE_MACHINE_TYPE_MISMATCH)
-		 || !isOppositeBitnessDll(dllFile, unicode) )
-			RETURN_ERROR(BASS_ERROR_FILEFORM)
+		this_->hinst = unicode ? LoadLibraryW((LPCWSTR)dllFile) : LoadLibraryA((LPCSTR)dllFile);
+		if( this_->hinst )
+		{
+			entry = GetProcAddress(this_->hinst, "VSTPluginMain");
+			if( !entry )
+				entry = GetProcAddress(this_->hinst, "main");
+		}
+		else
+		{
+			DWORD loadError = s_getLastError ? s_getLastError() : 0;
+			if( (loadError != ERROR_BAD_EXE_FORMAT && loadError != ERROR_EXE_MACHINE_TYPE_MISMATCH)
+			 || !isOppositeBitnessDll(dllFile, unicode) )
+				RETURN_ERROR(BASS_ERROR_FILEFORM)
 
+			this_->directBridge = true;
+		}
+	}
+	if( this_->directBridge )
+	{
 		this_->hinst = loadVst2Bridge();
 		if( !this_->hinst )
 			RETURN_ERROR(BASS_ERROR_FILEOPEN)
 
-		this_->directBridge = true;
 		entry = GetProcAddress(this_->hinst, unicode ? "VST2BridgeCreateW" : "VST2BridgeCreateA");
 	}
 	if( !entry )
@@ -586,12 +664,12 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 	EnterCriticalSection(&s_vstEntryCritical);
 	DWORD previousHandle = s_inConstructionVstHandle;
 	s_inConstructionVstHandle = this_->vstHandle;
-	if( !this_->directBridge )
+	if( !this_->directBridge && !this_->directClap )
 		this_->aeffect = ((dllMainEntryFuncType)entry)(audioMasterCallbackImpl);
 	else if( unicode )
-		this_->aeffect = ((Vst2BridgeCreateWProc)entry)(audioMasterCallbackImpl, (LPCWSTR)dllFile);
+		this_->aeffect = ((PathEntryWProc)entry)(audioMasterCallbackImpl, (LPCWSTR)dllFile);
 	else
-		this_->aeffect = ((Vst2BridgeCreateAProc)entry)(audioMasterCallbackImpl, (LPCSTR)dllFile);
+		this_->aeffect = ((PathEntryAProc)entry)(audioMasterCallbackImpl, (LPCSTR)dllFile);
 
 	bool valid = this_->aeffect && this_->aeffect->magic == kEffectMagic && this_->aeffect->dispatcher
 	          && (this_->aeffect->__processDeprecated || this_->aeffect->processReplacing || canDoubleReplacing(this_));
@@ -656,7 +734,16 @@ static BOOL loadVstLibrary(BASS_VST_PLUGIN* this_, const void* dllFile, DWORD cr
 	// this is a safety measure against some plugins that only set their buffers
 	// ONCE - this should ensure that they allocate a buffer that's large enough.
 	// Normally, the buffer size is set dynamically in PostprocessSamples(). Falco: 1 sec is buffer is overkill since the max possible update period of Bass is 100 ms.
-	this_->aeffect->dispatcher(this_->aeffect, effSetBlockSize, 0, (long)(sampleRate * 0.2)/*0.2 second*/, NULL, 0.0);
+	long blockSize = (long)(sampleRate * 0.2);
+	this_->clapVariableBlocks = this_->directClap &&
+		this_->aeffect->dispatcher(this_->aeffect, effCanDo, 0, 0, (void*)"CLAP2VST2VariableBlocks", 0.0) == 1;
+	if( this_->clapVariableBlocks )
+	{
+		DWORD updatePeriod = BASS_GetConfig(BASS_CONFIG_UPDATEPERIOD);
+		if( updatePeriod > 0 && updatePeriod <= 200 )
+			blockSize = (long)(((QWORD)sampleRate * updatePeriod + 999) / 1000);
+	}
+	this_->aeffect->dispatcher(this_->aeffect, effSetBlockSize, 0, blockSize, NULL, 0.0);
 	this_->aeffect->dispatcher(this_->aeffect, effMainsChanged, 0, 1/*resume*/, NULL, 0.0);	
 	
 	this_->numDefaultValues = 0;
@@ -844,7 +931,19 @@ DWORD BASS_VSTDEF(BASS_VST_ChannelCreate)(DWORD freq, DWORD chans, const void* d
 Error:
 	// error - error already set by BASS or by using SET_ERROR
 	if( this_ )
-		unrefHandle(this_->vstHandle);
+	{
+		if( this_->directClap )
+		{
+			// A rejected CLAP instrument still has a BASS stream to release.
+			int error = BASS_ErrorGetCode();
+			DWORD vstHandle = this_->vstHandle;
+			unrefHandle(vstHandle);
+			BASS_StreamFree(vstHandle);
+			SET_ERROR(error);
+		}
+		else
+			unrefHandle(this_->vstHandle);
+	}
 	return 0;
 }
 

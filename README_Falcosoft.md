@@ -43,3 +43,45 @@ version 2.4.0.13
 - JBridge unicode workaround improvement:
   If WideCharToMultiByte() fails converting unicode path to current ANSI code page then we can try the 8.3 short path name that is always convertible to any ANSI code pages. 
 - Plugin's delta time reset transferred to a Midi critical section.
+
+version 2.4.0.16 (VST2Bridge)
+
+- Replaced the automatic jBridge fallback with VST2Bridge. BASS_VST first
+  tries native loading and uses the bridge only for a confirmed x86/x64
+  plug-in bitness mismatch. Pass the original plug-in DLL path. ANSI and
+  BASS_UNICODE paths use the corresponding VST2BridgeCreateA/W export.
+- Put these protocol-2 components in a VST2Bridge subfolder beside the
+  rebuilt bass_vst.dll:
+
+    32-bit BASS_VST: vst2bridge-x86.dll and vst2bridge-host64.exe
+    64-bit BASS_VST: vst2bridge-x64.dll and vst2bridge-host32.exe
+
+  The bridge DLL must have the new direct-loading exports. An original
+  protocol-2 helper is compatible. The 32-bit host needs 64-bit Windows
+  to launch a 64-bit helper.
+- The MIDI event queue accepts 1024 events for direct-bridged instances
+  and 2048 for native loading.
+- Build the source/bass_vst.sln solution with Visual Studio 2005.
+
+## CLAP loading
+
+Pass the original `.clap` path to `BASS_VST_ChannelCreate` for instruments
+or `BASS_VST_ChannelSetDSP` for effects. Set `BASS_UNICODE` for UTF-16 paths.
+
+Deploy the separately built CLAP2VST2 Legacy DLLs in the `VST2Bridge`
+subfolder beside `bass_vst.dll`. Match the wrapper DLL to the plugin's
+bitness. Same-bitness plugins load in the host process. Opposite-bitness
+plugins need the CLAP-capable helper from the
+[VST2Bridge Windows release branch](https://github.com/Falcosoft/VST2Bridge/tree/windows-direct-release).
+
+| Host | CLAP plugin | Wrapper DLL | Bridge DLL | Helper EXE |
+|---|---|---|---|---|
+| x86 | x86 | `CLAP2VST2-x86.dll` | | |
+| x86 | x64 | `CLAP2VST2-x64.dll` | `vst2bridge-x86.dll` | `vst2bridge-host64.exe` |
+| x64 | x86 | `CLAP2VST2-x86.dll` | `vst2bridge-x64.dll` | `vst2bridge-host32.exe` |
+| x64 | x64 | `CLAP2VST2-x64.dll` | | |
+
+With a wrapper that advertises `CLAP2VST2VariableBlocks`, BASS_VST can
+grow its buffers without suspending and reactivating the plugin.
+For same-bitness CLAP callbacks, run the BASS_VST idle timer on the
+thread that opened the plugin.

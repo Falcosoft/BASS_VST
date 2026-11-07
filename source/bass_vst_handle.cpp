@@ -141,8 +141,8 @@ static void destroyHandle(BASS_VST_PLUGIN* this_)
 		leaveVstCritical(this_);
 	}
 
-	// The bridge owns a helper as soon as its factory returns a proxy.
-	if( this_->effOpenCalled || (this_->directBridge && this_->aeffect
+	// Direct-loading factories own resources as soon as they return an effect.
+	if( this_->effOpenCalled || ((this_->directBridge || this_->directClap) && this_->aeffect
 	 && this_->aeffect->magic == kEffectMagic && this_->aeffect->dispatcher) )
 	{
 		enterVstCritical(this_);

@@ -88,6 +88,8 @@ typedef struct
 	DWORD				createFlags;
 	HINSTANCE			hinst;
 	bool				directBridge;
+	bool				directClap;
+	bool				clapVariableBlocks;
 
 	// the underlying VST object
 	AEffect*			aeffect;

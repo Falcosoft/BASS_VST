@@ -147,6 +147,10 @@ static void cnvFloatLLRR_To_Stereo(float* bufferL, float* bufferR, long sampleCo
 
 void callMainsChanged(BASS_VST_PLUGIN* this_, long blockSize)
 {
+	// CLAP2VST2 can split larger calls without changing its activation range.
+	if( this_->clapVariableBlocks )
+		return;
+
 	enterVstCritical(this_);
 	this_->aeffect->dispatcher(this_->aeffect, effMainsChanged, 0, 0/*suspend*/, NULL, 0.0);
 	this_->aeffect->dispatcher(this_->aeffect, effSetBlockSize, 0, blockSize, NULL, 0.0);
